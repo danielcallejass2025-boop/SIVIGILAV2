@@ -1,0 +1,77 @@
+# Virtual environment
+venv/
+env/
+ENV/
+.venv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+credentials/token.json
+credentials/*.json
+
+# Data folders (keep structure, ignore files)
+data/ENTRADA_SIVIGILA/*
+!data/ENTRADA_SIVIGILA/.gitkeep
+
+data/DEPURADO/*
+!data/DEPURADO/.gitkeep
+
+data/ERROR/*
+!data/ERROR/.gitkeep
+
+# Logs
+logs/*.log
+logs/*.log.*
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*~
+.~*
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Streamlit cache
+.streamlit/

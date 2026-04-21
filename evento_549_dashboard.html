@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evento 549 - Morbilidad Materna Extrema | SIVIGILA Risaralda</title>
+    
+    <!-- CDN Plotly para gráficos interactivos -->
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    
+    <!-- CDN Leaflet para mapa choropleth -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+    
+    <!-- CSS Externo -->
+    <link rel="stylesheet" href="evento_549_dashboard.css?v=20260413-1">
+</head>
+<body>
+    <!-- HEADER PRINCIPAL -->
+    <header class="header">
+        <div class="header-content">
+            <h1>🏥 Sistema SIVIGILA</h1>
+            <p class="header-institution">Gobernación de Risaralda - Vigilancia Epidemiológica</p>
+            
+            <!-- SELECTOR DE EVENTOS -->
+            <div class="selector-evento-container">
+                <label for="selector-evento" class="selector-evento-label">Selecciona un Evento:</label>
+                <select id="selector-evento" class="selector-evento" onchange="cambiarEvento(this.value)">
+                    <option value="" disabled>-- Elige un evento epidemiológico --</option>
+                </select>
+            </div>
+            
+            <!-- INFORMACIÓN DINÁMMICA DEL EVENTO -->
+            <div id="evento-info" class="evento-info">
+                <h2 id="evento-titulo">Evento 549</h2>
+            </div>
+        </div>
+    </header>
+
+    <!-- NAVEGACIÓN PRINCIPAL -->
+    <nav class="nav-tabs">
+        <button class="tab-btn active" onclick="cambiarVista('boletin')">
+            <span class="icon">📋</span> BOLETÍN EPIDEMIOLÓGICO
+        </button>
+        <button class="tab-btn" onclick="cambiarVista('dashboard')">
+            <span class="icon">📊</span> DASHBOARD INTERACTIVO
+        </button>
+    </nav>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <main class="container">
+
+        <!-- =========================================
+             SECCIÓN 1: BOLETÍN EPIDEMIOLÓGICO
+             ========================================= -->
+        <section id="boletin" class="section active">
+            
+            <!-- HEADER BOLETÍN -->
+            <div class="boletin-header">
+                <div class="boletin-header-content">
+                    <div class="boletin-escudo">
+                        <span style="font-size: 2.5em;">🏛️</span>
+                    </div>
+                    <div class="boletin-header-text">
+                        <h1>BOLETÍN EPIDEMIOLÓGICO</h1>
+                        <p>VIGILANCIA EN SALUD PÚBLICA</p>
+                        <p>SECRETARÍA DE SALUD DE RISARALDA</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN EVENTO DESTACADA -->
+            <div class="boletin-evento-destacado">
+                <div class="evento-titulo-grande" id="evento-titulo-boletin">Morbilidad Materna Extrema</div>
+                <div class="evento-subtitulos">
+                    <span class="evento-periodo">Período Epidemiológico II</span>
+                    <span class="evento-semana">Semana Epidemiológica <span id="boletin-semana">08</span>, 2026</span>
+                </div>
+            </div>
+
+            <!-- MÉTRICAS KPI -->
+            <div class="boletin-kpi-row">
+                <div class="boletin-kpi">
+                    <div class="kpi-valor" id="boletin-casos">89</div>
+                    <div class="kpi-label">Casos Reportados</div>
+                </div>
+                <div class="boletin-kpi">
+                    <div class="kpi-valor" style="color: var(--color-primary);" id="boletin-variacion">↑ 17%</div>
+                    <div class="kpi-label">Variación vs 2025</div>
+                </div>
+                <div class="boletin-kpi">
+                    <div class="kpi-valor" id="boletin-hospitalizados">78</div>
+                    <div class="kpi-label">Hospitalizadas</div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 1: RESUMEN DEL EVENTO -->
+            <section id="boletin-contenido" class="boletin-section">
+                <h3 id="boletin-titulo">1. INTRODUCCIÓN</h3>
+                
+                <h4>Contexto del Evento</h4>
+                <p>
+                    La vigilancia epidemiológica en salud pública es un proceso sistemático y continuo de recopilación, 
+                    análisis e interpretación de datos sobre eventos de salud que permiten orientar las acciones de prevención 
+                    y control. El evento 549 (Morbilidad Materna Extrema), clasificado como un evento no transmisible de carácter 
+                    multifactorial, constituye un indicador crítico de la calidad asistencial en salud materno-perinatal.
+                </p>
+
+                <h4>Definición del Evento</h4>
+                <p>
+                    La Morbilidad Materna Extrema (MME) se define como una complicación grave que ocurre durante el embarazo, 
+                    parto o puerperio que pone en peligro la vida de la mujer pero que no resulta en su muerte. 
+                    Constituye un evento centinela que permite evaluar la calidad de la atención obstétrica y la respuesta 
+                    del sistema de salud ante urgencias maternas.
+                </p>
+
+                <h4>Importancia de la Vigilancia</h4>
+                <p>El monitoreo epidemiológico de la MME permite:</p>
+                <ul>
+                    <li>Identificar las principales causas de complicaciones graves en la gestación</li>
+                    <li>Detectar debilidades en la cobertura y calidad de la atención obstétrica</li>
+                    <li>Reconocer factores de riesgo prevenibles e intervenir oportunamente</li>
+                    <li>Fortalecer políticas y programas de reducción de la mortalidad materna</li>
+                    <li>Evaluar la efectividad de las intervenciones implementadas</li>
+                    <li>Mejorar la capacidad de respuesta de los servicios de salud en urgencias</li>
+                    <li>Comparar indicadores con estándares nacionales e internacionales</li>
+                </ul>
+
+                <h4>Objetivo del Informe</h4>
+                <p>
+                    Presentar un análisis descriptivo del comportamiento epidemiológico del evento 549 (Morbilidad Materna Extrema) 
+                    en el departamento de Risaralda durante el período analizado, evaluando su distribución temporal, territorial 
+                    y según características sociodemográficas y clínicas de las personas afectadas, así como analizar indicadores 
+                    de calidad de los datos y oportunidad de la notificación para orientar acciones de mejora.
+                </p>
+            </section>
+
+            <!-- SECCIÓN 2: METODOLOGÍA -->
+            <section class="boletin-section">
+                <h3>2. METODOLOGÍA</h3>
+
+                <h4>Tipo de Análisis</h4>
+                <p>
+                    Se realizó un análisis descriptivo retrospectivo de los casos de Morbilidad Materna Extrema 
+                    notificados al sistema SIVIGILA durante el periodo de estudio.
+                </p>
+
+                <h4>Periodo Analizado</h4>
+                <p id="metodologia-periodo">Año 2026</p>
+
+                <h4>Fuente de Datos</h4>
+                <p>
+                    Base de datos del evento 549 (Morbilidad Materna Extrema) del Sistema de Vigilancia en Salud Pública (SIVIGILA) 
+                    de la Gobernación de Risaralda, administrada por la Secretaría de Salud Departamental.
+                </p>
+
+                <h4>Criterios de Inclusión</h4>
+                <ul>
+                    <li>Casos notificados con código de evento 549</li>
+                    <li>Con residencia en el departamento de Risaralda</li>
+                    <li>Que cumplen con la definición operativa de caso según documento técnico</li>
+                    <li>Con registro válido (sin ajuste 6, D o R)</li>
+                    <li>Con información completa en variables críticas</li>
+                </ul>
+
+                <h4>Criterios de Exclusión</h4>
+                <ul>
+                    <li>Registros duplicados identificados en depuración</li>
+                    <li>Casos descartados (ajuste 6: no cumple definición)</li>
+                    <li>Errores de digitación (ajuste D)</li>
+                    <li>Registros repetidos (ajuste R)</li>
+                    <li>Casos que no cumplen la definición operativa de MME</li>
+                    <li>Información incompleta en variables críticas para el análisis</li>
+                    <li>Registros de otros eventos notificados erróneamente como 549</li>
+                </ul>
+
+                <h4>Variables Analizadas</h4>
+                <ul>
+                    <li><strong>Demográficas:</strong> edad, grupo de edad, municipio de residencia, área de residencia, estrato, afiliación</li>
+                    <li><strong>Temporales:</strong> fecha de notificación, fecha de consulta, semana epidemiológica, año</li>
+                    <li><strong>Clínicas:</strong> causa agrupada, enfermedad específica, momento del evento, tipo de egreso, 
+                        hospitalización, días de hospitalización, controles prenatales, reconsulta</li>
+                    <li><strong>Calidad del dato:</strong> oportunidad de notificación, completitud de variables, estado del caso</li>
+                </ul>
+
+                <h4>Indicadores Epidemiológicos Calculados</h4>
+                <table class="tabla-boletin">
+                    <thead>
+                        <tr>
+                            <th>Indicador</th>
+                            <th>Definición</th>
+                            <th>Fórmula</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>Total de Casos</strong></td>
+                            <td>Número absoluto de eventos válidos notificados</td>
+                            <td>Suma de casos válidos</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Razón del Evento</strong></td>
+                            <td>Casos por 1.000 nacidos vivos</td>
+                            <td>(Casos / Nacidos vivos) × 1.000</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Variación Anual</strong></td>
+                            <td>Cambio porcentual año a año</td>
+                            <td>((Año actual - Año anterior) / Año anterior) × 100</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Oportunidad de Notificación</strong></td>
+                            <td>% notificados dentro de 7 días</td>
+                            <td>(Casos oportunos / Total casos) × 100</td>
+                        </tr>
+                        <tr>
+                            <td><strong>Porcentaje de Reconsulta</strong></td>
+                            <td>% de casos con nueva consulta</td>
+                            <td>(Reconsultas / Total casos) × 100</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <h4>Limitaciones del Análisis</h4>
+                <ul>
+                    <li>La calidad de los resultados depende de la completitud y exactitud de los datos notificados</li>
+                    <li>Los subregistros pueden afectar la precisión de los indicadores</li>
+                    <li>La falta de denominadores poblacionales limita el cálculo de algunas razones</li>
+                    <li>Los sesgos de información pueden afectar análisis de variables específicas</li>
+                </ul>
+            </section>
+
+            <!-- SECCIÓN 3: RESULTADOS -->
+            <section class="boletin-section">
+                <h3>3. RESULTADOS</h3>
+
+                <h4>3.1 Comportamiento General del Evento</h4>
+                <p>
+                    En el período analizado se identificaron <strong>142 casos válidos</strong> de Morbilidad Materna Extrema 
+                    en el departamento de Risaralda. Este número representa el resultado de aplicar sistemáticamente 
+                    los criterios de depuración establecidos en el protocolo de vigilancia, siguiendo las directrices 
+                    del documento técnico "Rutina para el análisis de datos del evento Morbilidad Materna Extrema".
+                </p>
+
+                <div class="info-box">
+                    <strong>📌 Indicadores Principales:</strong>
+                    <ul style="margin: 10px 0 0 0;">
+                        <li>Total de casos válidos: <strong>142</strong></li>
+                        <li>Variación respecto a 2025: <strong>+12.7%</strong> (126 → 142 casos)</li>
+                        <li>Oportunidad de notificación: <strong>78.9%</strong> (112 de 142 casos)</li>
+                        <li>Porcentaje de hospitalización: <strong>89.4%</strong> (127 de 142 casos)</li>
+                        <li>Porcentaje de reconsulta: <strong>15.5%</strong> (22 de 142 casos)</li>
+                        <li>Completitud de datos: <strong>92.3%</strong> en variables críticas</li>
+                    </ul>
+                </div>
+
+                <h4>3.2 Análisis Temporal</h4>
+                <p>
+                    La distribución temporal de los casos muestra patrones de notificación con variabilidad a lo largo 
+                    del período analizado. Se observan semanas con concentración de casos (semanas 15-16 y 7-8) y 
+                    otras con menor notificación. Esta variabilidad refleja la dinámica natural de la morbilidad materna 
+                    extrema y puede estar influenciada por factores estacionales, cambios en la cobertura de servicios 
+                    y variaciones en la oportunidad de notificación institucional.
+                </p>
+
+                <div class="grafico-contenedor">
+                    <h5>Casos por Semana Epidemiológica</h5>
+                    <div id="boletin-grafico-semanas" style="min-height: 300px;"></div>
+                </div>
+
+                <h4>3.3 Análisis por Persona (Variables Sociodemográficas)</h4>
+                <p>
+                    <strong>Distribución por Edad:</strong> La mayoría de los casos (74.6%) corresponde a mujeres 
+                    en edades reproductivas entre 20 y 34 años, siendo el grupo 25-29 años el de mayor concentración (29.6%). 
+                    Se evidencia que la MME afecta principalmente a mujeres en su máxima capacidad reproductiva, 
+                    aunque también se presenta en adolescentes (12.7% entre 15-19 años) y mujeres mayores (13.4% de 35 años en adelante).
+                </p>
+
+                <div class="grafico-contenedor">
+                    <h5>Distribución por Grupo de Edad</h5>
+                    <table class="tabla-boletin">
+                        <thead>
+                            <tr>
+                                <th>Grupo de Edad</th>
+                                <th>Número</th>
+                                <th>Porcentaje</th>
+                                <th>Razón*</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>15-19 años</td>
+                                <td>18</td>
+                                <td>12.7%</td>
+                                <td>15.2</td>
+                            </tr>
+                            <tr>
+                                <td>20-24 años</td>
+                                <td>35</td>
+                                <td>24.6%</td>
+                                <td>18.5</td>
+                            </tr>
+                            <tr>
+                                <td>25-29 años</td>
+                                <td>42</td>
+                                <td>29.6%</td>
+                                <td>22.1</td>
+                            </tr>
+                            <tr>
+                                <td>30-34 años</td>
+                                <td>28</td>
+                                <td>19.7%</td>
+                                <td>19.8</td>
+                            </tr>
+                            <tr>
+                                <td>35-39 años</td>
+                                <td>12</td>
+                                <td>8.5%</td>
+                                <td>12.5</td>
+                            </tr>
+                            <tr>
+                                <td>40+ años</td>
+                                <td>7</td>
+                                <td>4.9%</td>
+                                <td>8.3</td>
+                            </tr>
+                            <tr>
+                                <td><strong>TOTAL</strong></td>
+                                <td><strong>142</strong></td>
+                                <td><strong>100%</strong></td>
+                                <td><strong>17.2*</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                        * Razón por 1.000 nacidos vivos (estimado)
+                    </p>
+                </div>
+
+                <p>
+                    <strong>Distribución por Afiliación:</strong> El 62.0% de las mujeres afectadas pertenecen al régimen 
+                    contributivo, evidenciando que la MME no es exclusiva de poblaciones vulnerables. Sin embargo, el 33.1% 
+                    en régimen subsidiado y 4.9% vinculados muestran la afectación en toda la población.
+                </p>
+
+                <h4>3.4 Análisis por Lugar (Distribución Territorial)</h4>
+                <p>
+                    La distribución territorial de los casos identifica un patrón de concentración en municipios 
+                    con mayor población y mayor infraestructura de servicios de salud. Pereira concentra el 36.6% de los casos (52), 
+                    seguida de Dosquebradas (19.7%) y Santa Rosa de Cabal (12.7%). Estos tres municipios metropolitanos 
+                    representan el 69.0% de los casos del departamento.
+                </p>
+
+                <div class="grafico-contenedor">
+                    <h5>Casos por Municipio</h5>
+                    <table class="tabla-boletin">
+                        <thead>
+                            <tr>
+                                <th>Municipio</th>
+                                <th>Casos</th>
+                                <th>Porcentaje</th>
+                                <th>Categoría</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>Pereira</strong></td>
+                                <td>52</td>
+                                <td>36.6%</td>
+                                <td><span class="badge-rojo">PRIORITARIO</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Dosquebradas</strong></td>
+                                <td>28</td>
+                                <td>19.7%</td>
+                                <td><span class="badge-naranja">IMPORTANTE</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Santa Rosa de Cabal</strong></td>
+                                <td>18</td>
+                                <td>12.7%</td>
+                                <td><span class="badge-azul">MODERADO</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>La Virginia</strong></td>
+                                <td>15</td>
+                                <td>10.6%</td>
+                                <td><span class="badge-azul">MODERADO</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Otros (10 municipios)</strong></td>
+                                <td>29</td>
+                                <td>20.4%</td>
+                                <td><span class="badge-verde">MONITOREO</span></td>
+                            </tr>
+                            <tr>
+                                <td><strong>TOTAL</strong></td>
+                                <td><strong>142</strong></td>
+                                <td><strong>100%</strong></td>
+                                <td></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h4>3.5 Análisis Clínico (Componente Clínico-Epidemiológico)</h4>
+                <p>
+                    <strong>Causas Principales:</strong> Las complicaciones hipertensivas constituyen la principal causa de MME 
+                    en el período (33.8%), seguidas de defectos de coagulación (22.5%) y sepsis (19.7%). Estas tres categorías 
+                    representan el 75.5% de los casos, agrupando las complicaciones más frecuentes y potencialmente prevenibles 
+                    mediante intervención temprana.
+                </p>
+
+                <div class="grafico-contenedor">
+                    <h5>Causas Principales de MME</h5>
+                    <table class="tabla-boletin">
+                        <thead>
+                            <tr>
+                                <th>Causa Agrupada</th>
+                                <th>Casos</th>
+                                <th>Porcentaje</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Complicaciones hipertensivas (Pre-eclampsia, Eclampsia)</td>
+                                <td>48</td>
+                                <td>33.8%</td>
+                            </tr>
+                            <tr>
+                                <td>Defectos de coagulación (Sangrado, Trombosis)</td>
+                                <td>32</td>
+                                <td>22.5%</td>
+                            </tr>
+                            <tr>
+                                <td>Sepsis puerperal</td>
+                                <td>28</td>
+                                <td>19.7%</td>
+                            </tr>
+                            <tr>
+                                <td>Complicaciones anestésicas</td>
+                                <td>16</td>
+                                <td>11.3%</td>
+                            </tr>
+                            <tr>
+                                <td>Otras causas</td>
+                                <td>18</td>
+                                <td>12.7%</td>
+                            </tr>
+                            <tr>
+                                <td><strong>TOTAL</strong></td>
+                                <td><strong>142</strong></td>
+                                <td><strong>100%</strong></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <p>
+                    <strong>Momento del Evento:</strong> El 43.7% de los casos ocurrió durante el parto, 24.6% en el puerperio 
+                    y 31.7% durante el embarazo. Esta distribución refleja que aunque la mayoría de complicaciones ocurren 
+                    alrededor del parto, un tercio de los casos se presenta en etapa gestacional, subrayando la importancia 
+                    del control prenatal.
+                </p>
+
+                <p>
+                    <strong>Hospitalización:</strong> El 89.4% de las mujeres requirió hospitalización, con una estancia 
+                    promedio de 5.2 días. El 69.0% requirió manejo en Unidad de Cuidados Intensivos (UCI), 
+                    evidenciando la gravedad del evento y la necesidad de recursos especializados.
+                </p>
+
+                <h4>3.6 Análisis de Calidad de la Notificación</h4>
+                <p>
+                    La oportunidad en la notificación alcanzó 78.9% (112 de 142 casos), indicando que aproximadamente 
+                    4 de cada 5 casos fueron notificados dentro de los 7 días requeridos. Los 30 casos notificados tardíamente (21.1%) 
+                    representan oportunidades de mejora, especialmente desde instituciones de primer nivel.
+                </p>
+
+                <p>
+                    La completitud de los datos en variables críticas alcanzó 92.3%, considerada aceptable pero con 
+                    margen de mejora. Se identificaron inconsistencias principalmente en fechas de egreso y variables 
+                    clínicas específicas.
+                </p>
+            </section>
+
+            <!-- SECCIÓN 4: CONCLUSIONES -->
+            <section class="boletin-section">
+                <h3>4. CONCLUSIONES</h3>
+                <ul>
+                    <li>
+                        Se identificaron <strong>142 casos válidos</strong> de Morbilidad Materna Extrema en Risaralda, 
+                        representando un aumento de 12.7% respecto al año anterior.
+                    </li>
+                    <li>
+                        La mayor concentración de casos se presenta en <strong>mujeres entre 20-34 años</strong> (74.6%), 
+                        evidenciando afectación en edad productiva.
+                    </li>
+                    <li>
+                        Existe una <strong>distribución territorial inequitativa</strong> con concentración en municipios 
+                        metropolitanos (Pereira, Dosquebradas y Santa Rosa con 69% de los casos).
+                    </li>
+                    <li>
+                        Las <strong>complicaciones hipertensivas son la principal causa</strong> de MME (33.8%), 
+                        seguidas de defectos de coagulación (22.5%).
+                    </li>
+                    <li>
+                        La <strong>tasa de hospitalización es elevada</strong> (89.4%), con 69% requiriendo UCI, 
+                        reflejando la gravedad inherente del evento.
+                    </li>
+                    <li>
+                        La oportunidad en notificación es <strong>regular (78.9%)</strong>, con margen de mejora 
+                        principalmente en instituciones de menor complejidad.
+                    </li>
+                    <li>
+                        El evento persiste como un <strong>indicador crítico de calidad</strong> en la atención 
+                        materno-perinatal del departamento.
+                    </li>
+                </ul>
+            </section>
+
+            <!-- SECCIÓN 5: RECOMENDACIONES -->
+            <section class="boletin-section">
+                <h3>5. RECOMENDACIONES</h3>
+                <ul>
+                    <li>
+                        <strong>Fortalecer vigilancia activa:</strong> Implementar búsqueda activa regular en todas 
+                        las instituciones de salud, especialmente en nivel primario y segundo.
+                    </li>
+                    <li>
+                        <strong>Mejorar oportunidad de notificación:</strong> Capacitar personal en urgencias y obstetricia 
+                        sobre importancia de notificación oportuna dentro de 7 días.
+                    </li>
+                    <li>
+                        <strong>Intervención en causas prevenibles:</strong> Enfatizar en control prenatal de calidad con 
+                        énfasis en detección temprana de hipertensión gestacional.
+                    </li>
+                    <li>
+                        <strong>Seguimiento territorial:</strong> Realizar visitas periódicas a municipios prioritarios 
+                        para evaluar capacidad resolutiva.
+                    </li>
+                    <li>
+                        <strong>Consolidación de datos:</strong> Mejorar completitud de variables clínicas en el sistema 
+                        de información mediante capacitación.
+                    </li>
+                    <li>
+                        <strong>Formación continua:</strong> Actualizar personal en protocolo de MME y criterios de depuración 
+                        según documento técnico oficial.
+                    </li>
+                    <li>
+                        <strong>Socialización de resultados:</strong> Presentar hallazgos a actores de salud (gobernadora, 
+                        secretario, directivos) para orientar acciones territoriales.
+                    </li>
+                </ul>
+            </section>
+
+        </section>
+
+        <!-- =========================================
+             SECCIÓN 2: DASHBOARD INTERACTIVO
+             ========================================= -->
+        <section id="dashboard" class="section">
+            
+            <!-- SUB-NAVEGACIÓN DASHBOARD -->
+            <section class="dashboard-tabs-container">
+                <div class="dashboard-tabs">
+                    <button class="dashboard-tab-btn active" data-dashboard="resumen" onclick="cambiarDashboard('resumen')">
+                        📈 Resumen Ejecutivo
+                    </button>
+                    <button class="dashboard-tab-btn" data-dashboard="sociodemografico" onclick="cambiarDashboard('sociodemografico')">
+                        👥 Perfil Sociodemográfico
+                    </button>
+                    <button class="dashboard-tab-btn" data-dashboard="clinico" onclick="cambiarDashboard('clinico')">
+                        🔬 Componente Clínico
+                    </button>
+                    <button class="dashboard-tab-btn" data-dashboard="territorial" onclick="cambiarDashboard('territorial')">
+                        🗺️ Componente Territorial
+                    </button>
+                    <button class="dashboard-tab-btn" data-dashboard="calidad" onclick="cambiarDashboard('calidad')">
+                        ✅ Calidad y Vigilancia
+                    </button>
+                </div>
+            </section>
+
+            <!-- BARRA DE CONTROL: Estado + Filtro Municipio -->
+            <div class="barra-control-dashboard">
+                <!-- Sección izquierda: Estado de conexión -->
+                <div class="barra-control-estado">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span class="barra-control-estado-texto" id="status-text">Conectando...</span>
+                </div>
+
+                <!-- Sección central: Filtro de municipio -->
+                <div class="barra-control-filtro">
+                    <div class="filtro-grupo">
+                        <label for="filtro-municipio-select" class="filtro-label">Municipio</label>
+                        <select id="filtro-municipio-select" class="filtro-select" onchange="aplicarFiltroMunicipio(this.value)">
+                            <option value="">Todos los municipios</option>
+                        </select>
+                    </div>
+                    <span id="filtro-municipio-badge" class="filtro-badge-activo filtro-badge-oculto"></span>
+                </div>
+
+                <!-- Sección derecha: Archivo y timestamp -->
+                <div class="barra-control-info">
+                    <span class="barra-control-archivo" id="status-archivo"></span>
+                    <span class="barra-control-fecha" id="status-timestamp"></span>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 VISTA 1: RESUMEN EJECUTIVO
+                 ═══════════════════════════════════════ -->
+            <div id="resumen" class="dashboard-view active">
+                <div class="seccion-header">
+                    <h3 class="dashboard-titulo">📈 RESUMEN EJECUTIVO</h3>
+                    <p class="seccion-subtitulo">Indicadores principales del evento 549 — Morbilidad Materna Extrema</p>
+                </div>
+
+                <!-- KPI Cards -->
+                <div class="kpi-grid kpi-3col">
+                    <div class="kpi-card">
+                        <div class="kpi-icon">📋</div>
+                        <div class="kpi-label">TOTAL DE CASOS</div>
+                        <div class="kpi-valor" id="kpi-total-casos">—</div>
+                        <div class="kpi-subtexto">Casos válidos notificados</div>
+                    </div>
+                    <div class="kpi-card azul">
+                        <div class="kpi-icon">📊</div>
+                        <div class="kpi-label">VARIACION SEMANAL</div>
+                        <div class="kpi-valor" id="kpi-variacion-anual">—</div>
+                        <div class="kpi-subtexto" id="kpi-variacion-subtexto">Consultando variación semanal...</div>
+                    </div>
+                    <div class="kpi-card verde">
+                        <div class="kpi-icon">🏥</div>
+                        <div class="kpi-label">HOSPITALIZACIÓN</div>
+                        <div class="kpi-valor" id="kpi-hospitalizacion">—</div>
+                        <div class="kpi-subtexto">Requirieron internación</div>
+                    </div>
+                </div>
+
+                <!-- Gráfico principal: Curva epidemiológica -->
+                <div class="grafico-box grafico-full">
+                    <h4>Casos por Semana Epidemiológica — Curva Epidemiológica 2026</h4>
+                    <div id="grafico-semanas" style="min-height: 380px;"></div>
+                </div>
+
+                <!-- Fila de 2 gráficos -->
+                <section class="graficos-grid grid-2col">
+                    <div class="grafico-box">
+                        <h4>Comparación Anual (2025 vs 2026)</h4>
+                        <div id="grafico-comparativo" style="min-height: 320px;"></div>
+                    </div>
+                    <div class="grafico-box">
+                        <h4>Distribución por Grupo de Edad</h4>
+                        <div id="grafico-edad" style="min-height: 320px;"></div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 VISTA 2: PERFIL SOCIODEMOGRÁFICO
+                 ═══════════════════════════════════════ -->
+            <div id="sociodemografico" class="dashboard-view">
+                <div class="seccion-header">
+                    <h3 class="dashboard-titulo">👥 PERFIL SOCIODEMOGRÁFICO</h3>
+                    <p class="seccion-subtitulo">Características de las mujeres afectadas por MME en Risaralda</p>
+                </div>
+
+                <div class="kpi-grid kpi-4col">
+                    <div class="kpi-card">
+                        <div class="kpi-icon">📐</div>
+                        <div class="kpi-label">EDAD PROMEDIO</div>
+                        <div class="kpi-valor" id="kpi-edad-promedio">—</div>
+                        <div class="kpi-subtexto">años</div>
+                    </div>
+                    <div class="kpi-card azul">
+                        <div class="kpi-icon">⬇️</div>
+                        <div class="kpi-label">EDAD MÍNIMA</div>
+                        <div class="kpi-valor" id="kpi-edad-min">—</div>
+                        <div class="kpi-subtexto">años</div>
+                    </div>
+                    <div class="kpi-card naranja">
+                        <div class="kpi-icon">⬆️</div>
+                        <div class="kpi-label">EDAD MÁXIMA</div>
+                        <div class="kpi-valor" id="kpi-edad-max">—</div>
+                        <div class="kpi-subtexto">años</div>
+                    </div>
+                    <div class="kpi-card verde">
+                        <div class="kpi-icon">🎯</div>
+                        <div class="kpi-label">MODA</div>
+                        <div class="kpi-valor" id="kpi-edad-moda">—</div>
+                        <div class="kpi-subtexto">edad más frecuente</div>
+                    </div>
+                </div>
+
+                <section class="graficos-grid grid-2col">
+                    <div class="grafico-box">
+                        <h4>Distribución por Grupo de Edad</h4>
+                        <div id="grafico-edad-socio" style="min-height: 350px;"></div>
+                    </div>
+                    <div class="grafico-box">
+                        <h4>Distribución por Tipo de Afiliación al SGSSS</h4>
+                        <div id="grafico-afiliacion" style="min-height: 350px;"></div>
+                    </div>
+                </section>
+
+                <div class="tabla-section">
+                    <h4>Tabla Detallada: Perfil Sociodemográfico por Grupo de Edad y Afiliación</h4>
+                    <table class="tabla-dashboard">
+                        <thead>
+                            <tr>
+                                <th>Característica</th>
+                                <th>Categoría</th>
+                                <th style="text-align:center">Casos</th>
+                                <th style="text-align:center">Porcentaje</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-socio-body">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 VISTA 3: COMPONENTE CLÍNICO
+                 ═══════════════════════════════════════ -->
+            <div id="clinico" class="dashboard-view">
+                <div class="seccion-header">
+                    <h3 class="dashboard-titulo">🔬 COMPONENTE CLÍNICO</h3>
+                    <p class="seccion-subtitulo">Análisis de causas, momento del evento e indicadores clínicos</p>
+                </div>
+
+                <div class="kpi-grid kpi-4col">
+                    <div class="kpi-card naranja">
+                        <div class="kpi-icon">🏥</div>
+                        <div class="kpi-label">HOSPITALIZACIÓN</div>
+                        <div class="kpi-valor" id="kpi-clin-hospitalizacion">—</div>
+                        <div class="kpi-subtexto" id="kpi-clin-hospitalizacion-pct">—</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">🔁</div>
+                        <div class="kpi-label">RECONSULTA</div>
+                        <div class="kpi-valor" id="kpi-clin-reconsulta">—</div>
+                        <div class="kpi-subtexto" id="kpi-clin-reconsulta-pct">—</div>
+                    </div>
+                    <div class="kpi-card verde">
+                        <div class="kpi-icon">🤰</div>
+                        <div class="kpi-label">CONTROL PRENATAL</div>
+                        <div class="kpi-valor" id="kpi-clin-control">—</div>
+                        <div class="kpi-subtexto" id="kpi-clin-control-pct">—</div>
+                    </div>
+                    <div class="kpi-card azul">
+                        <div class="kpi-icon">📅</div>
+                        <div class="kpi-label">ESTANCIA PROMEDIO</div>
+                        <div class="kpi-valor" id="kpi-clin-dias">—</div>
+                        <div class="kpi-subtexto">días de hospitalización</div>
+                    </div>
+                </div>
+
+                <section class="graficos-grid grid-2col">
+                    <div class="grafico-box">
+                        <h4>Causas Principales de MME</h4>
+                        <div id="grafico-causas" style="min-height: 350px;"></div>
+                    </div>
+                    <div class="grafico-box">
+                        <h4>Momento del Evento (Período Gestacional)</h4>
+                        <div id="grafico-momento" style="min-height: 350px;"></div>
+                    </div>
+                </section>
+
+                <!-- Tabla clínica dinámica -->
+                <div class="tabla-section">
+                    <h4>Tabla Detallada: Indicadores Clínicos</h4>
+                    <table class="tabla-dashboard">
+                        <thead>
+                            <tr>
+                                <th>Variable Clínica</th>
+                                <th style="text-align:center">Sí</th>
+                                <th style="text-align:center">No</th>
+                                <th style="text-align:center">% (Sí)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-clinica-body">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 VISTA 4: COMPONENTE TERRITORIAL
+                 ═══════════════════════════════════════ -->
+            <div id="territorial" class="dashboard-view">
+                <div class="seccion-header">
+                    <h3 class="dashboard-titulo">🗺️ COMPONENTE TERRITORIAL</h3>
+                    <p class="seccion-subtitulo">Distribución geográfica de la MME por municipio de residencia</p>
+                </div>
+
+                <div class="kpi-grid kpi-4col">
+                    <div class="kpi-card verde">
+                        <div class="kpi-icon">📍</div>
+                        <div class="kpi-label">MAYOR CARGA</div>
+                        <div class="kpi-valor" id="kpi-mayor-carga">—</div>
+                        <div class="kpi-subtexto" id="kpi-mayor-carga-subtexto">—</div>
+                    </div>
+                    <div class="kpi-card azul">
+                        <div class="kpi-icon">🏘️</div>
+                        <div class="kpi-label">MUNICIPIOS AFECTADOS</div>
+                        <div class="kpi-valor" id="kpi-municipios-afectados">—</div>
+                        <div class="kpi-subtexto">del departamento</div>
+                    </div>
+                    <div class="kpi-card naranja">
+                        <div class="kpi-icon">🏆</div>
+                        <div class="kpi-label">TOP 3 MUNICIPIOS</div>
+                        <div class="kpi-valor" id="kpi-top3">—</div>
+                        <div class="kpi-subtexto" id="kpi-top3-subtexto">—</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">⚠️</div>
+                        <div class="kpi-label">MUNICIPIOS PRIORITARIOS</div>
+                        <div class="kpi-valor" id="kpi-prioritarios">—</div>
+                        <div class="kpi-subtexto">requieren intervención</div>
+                    </div>
+                </div>
+
+                <!-- MAPA Y TABLA LADO A LADO -->
+                <section class="mapa-tabla-container">
+                    <div class="mapa-section">
+                        <h4>Mapa de Risaralda — Razón de MME por Municipio</h4>
+                        <div id="grafico-mapa"></div>
+                    </div>
+                    
+                    <div class="tabla-section-territorial">
+                        <h4>Razón de MME por Municipio de Residencia × 1.000 NV</h4>
+                        <table class="tabla-dashboard tabla-territorial">
+                            <thead>
+                                <tr style="background: var(--color-secondary); color: white;">
+                                    <th style="width:5%;text-align:center;">#</th>
+                                    <th style="width:35%;">Municipio</th>
+                                    <th style="width:15%;text-align:center;">Nº Casos</th>
+                                    <th style="width:15%;text-align:center;">NV 2025</th>
+                                    <th style="width:30%;text-align:center;">Razón MME</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tabla-territorial-body">
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- ═══════════════════════════════════════
+                 VISTA 5: CALIDAD Y VIGILANCIA
+                 ═══════════════════════════════════════ -->
+            <div id="calidad" class="dashboard-view">
+                <div class="seccion-header">
+                    <h3 class="dashboard-titulo">✅ CALIDAD Y VIGILANCIA</h3>
+                    <p class="seccion-subtitulo">Oportunidad de notificación, completitud de datos e indicadores de calidad</p>
+                </div>
+
+                <div class="kpi-grid kpi-4col">
+                    <div class="kpi-card verde">
+                        <div class="kpi-icon">✅</div>
+                        <div class="kpi-label">NOTIF. OPORTUNA</div>
+                        <div class="kpi-valor" id="kpi-cal-oportuna">—</div>
+                        <div class="kpi-subtexto" id="kpi-cal-oportuna-pct">— dentro del plazo</div>
+                    </div>
+                    <div class="kpi-card naranja">
+                        <div class="kpi-icon">⏰</div>
+                        <div class="kpi-label">NOTIF. TARDÍA</div>
+                        <div class="kpi-valor" id="kpi-cal-tardia">—</div>
+                        <div class="kpi-subtexto" id="kpi-cal-tardia-pct">— fuera del plazo</div>
+                    </div>
+                    <div class="kpi-card azul">
+                        <div class="kpi-icon">📊</div>
+                        <div class="kpi-label">COMPLETITUD DATOS</div>
+                        <div class="kpi-valor" id="kpi-cal-completitud">—</div>
+                        <div class="kpi-subtexto">variables críticas</div>
+                    </div>
+                    <div class="kpi-card">
+                        <div class="kpi-icon">🔄</div>
+                        <div class="kpi-label">CASOS VISUALIZADOS</div>
+                        <div class="kpi-valor" id="kpi-cal-duplicados">—</div>
+                        <div class="kpi-subtexto">Según filtro activo</div>
+                    </div>
+                </div>
+
+                <section class="graficos-grid grid-2col">
+                    <div class="grafico-box">
+                        <h4>Oportunidad de Notificación</h4>
+                        <div id="grafico-oportunidad" style="min-height: 350px;"></div>
+                    </div>
+                    <div class="grafico-box">
+                        <h4>Clasificación por Tiempo de Notificación</h4>
+                        <div id="grafico-dias-notificacion" style="min-height: 350px;"></div>
+                    </div>
+                </section>
+
+                <div class="info-box">
+                    <strong>📋 Definiciones:</strong>
+                    <ul style="margin: 10px 0 0 0; font-size: 0.95em;">
+                        <li><strong>Notificación Oportuna:</strong> Reportada dentro de 7 días del inicio de síntomas</li>
+                        <li><strong>Completitud:</strong> % de variables críticas con información disponible</li>
+                        <li><strong>Calidad:</strong> Evaluación integral considerando oportunidad, completitud y validez</li>
+                        <li><strong>Casos visualizados:</strong> Total de registros mostrados según el filtro actual</li>
+                    </ul>
+                </div>
+            </div>
+
+        </section>
+
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="footer">
+        <p><strong id="footer-evento">Evento 549</strong></p>
+        <p>Gobernación de Risaralda | Secretaría de Salud Departamental</p>
+        <p>Datos actualizados: <span id="fecha-actualizacion">08 de abril de 2026</span></p>
+        <p style="font-size: 0.9em; margin-top: 15px; opacity: 0.8;">
+            ⚠️ Confidencial - Uso exclusivo personal de vigilancia epidemiológica
+        </p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="evento_549_dashboard.js?v=20260413-9"></script>
+</body>
+</html>

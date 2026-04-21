@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SIVIGILA - Evento 549 MME</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --rojo: #D71E28;
+            --azul: #003DA5;
+            --naranja: #FF8C00;
+            --verde: #008000;
+            --gris-oscuro: #2C3E50;
+            --gris-claro: #ECF0F1;
+            --blanco: #FFFFFF;
+            --sombra: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--blanco);
+            color: var(--gris-oscuro);
+            line-height: 1.6;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* HEADER */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .header {
+            background: linear-gradient(135deg, var(--rojo) 0%, var(--azul) 100%);
+            color: var(--blanco);
+            padding: 50px 40px;
+            text-align: left;
+            box-shadow: var(--sombra);
+            border-bottom: 6px solid var(--naranja);
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.8em;
+            font-weight: 800;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.98;
+            font-weight: 500;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* CONTENEDOR PRINCIPAL */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* SECCIÓN FILTROS */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .filter-section {
+            background: linear-gradient(to bottom, var(--gris-claro), #F5F7FA);
+            padding: 35px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            border-left: 8px solid var(--rojo);
+            box-shadow: var(--sombra);
+        }
+
+        .filter-section h2 {
+            color: var(--rojo);
+            font-size: 1.3em;
+            margin-bottom: 25px;
+            font-weight: 700;
+        }
+
+        .filters-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            align-items: end;
+        }
+
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .filter-group label {
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: var(--gris-oscuro);
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+
+        .filter-group select,
+        .filter-group input {
+            padding: 12px;
+            border: 2px solid var(--gris-claro);
+            border-radius: 8px;
+            font-size: 1em;
+            background-color: var(--blanco);
+            color: var(--gris-oscuro);
+            transition: all 0.3s ease;
+        }
+
+        .filter-group select:focus,
+        .filter-group input:focus {
+            outline: none;
+            border-color: var(--rojo);
+            box-shadow: 0 0 0 3px rgba(215, 30, 40, 0.1);
+        }
+
+        .filter-counter {
+            background-color: var(--blanco);
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            border: 2px solid var(--rojo);
+        }
+
+        .filter-counter .big-number {
+            font-size: 2.2em;
+            font-weight: 900;
+            color: var(--rojo);
+        }
+
+        .filter-counter .small-text {
+            font-size: 0.85em;
+            color: var(--azul);
+            margin-top: 5px;
+            font-weight: 600;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* MÉTRICAS KPI */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .section-title {
+            color: var(--rojo);
+            font-size: 1.3em;
+            font-weight: 700;
+            margin: 30px 0 20px 0;
+            padding-bottom: 10px;
+            border-bottom: 3px solid var(--naranja);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+
+        .metric-card {
+            background: linear-gradient(135deg, var(--blanco) 0%, #F9FAFB 100%);
+            border-radius: 12px;
+            padding: 35px;
+            text-align: center;
+            box-shadow: var(--sombra);
+            border-top: 5px solid var(--azul);
+            transition: all 0.3s ease;
+        }
+
+        .metric-card:hover {
+            box-shadow: 0 8px 25px rgba(0, 61, 165, 0.15);
+            transform: translateY(-5px);
+        }
+
+        .metric-label {
+            color: var(--gris-oscuro);
+            font-size: 0.85em;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            margin-bottom: 15px;
+        }
+
+        .metric-value {
+            color: var(--rojo);
+            font-size: 2.8em;
+            font-weight: 900;
+            letter-spacing: -1px;
+        }
+
+        .metric-subtext {
+            color: var(--azul);
+            font-size: 1em;
+            margin-top: 10px;
+            font-weight: 600;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* INFORMACIÓN DEL EVENTO */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .info-section {
+            background: linear-gradient(135deg, #E8F4F8 0%, #F0F8FC 100%);
+            border-left: 6px solid var(--azul);
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: var(--sombra);
+        }
+
+        .info-section h3 {
+            color: var(--azul);
+            margin-bottom: 15px;
+            font-size: 1.2em;
+            font-weight: 700;
+        }
+
+        .info-section p {
+            color: var(--gris-oscuro);
+            line-height: 1.8;
+            margin-bottom: 10px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* TABS */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .tabs {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+            background-color: var(--gris-claro);
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        .tab-button {
+            padding: 12px 24px;
+            background-color: transparent;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 1em;
+            cursor: pointer;
+            color: var(--gris-oscuro);
+            transition: all 0.3s ease;
+        }
+
+        .tab-button:hover {
+            background-color: rgba(215, 30, 40, 0.1);
+            border-color: var(--rojo);
+        }
+
+        .tab-button.active {
+            background-color: var(--rojo);
+            color: var(--blanco);
+            border-color: var(--rojo);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* GRÁFICAS */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .chart-container {
+            background-color: var(--blanco);
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 25px;
+            box-shadow: var(--sombra);
+        }
+
+        .chart-title {
+            font-size: 1.2em;
+            font-weight: 700;
+            color: var(--rojo);
+            margin-bottom: 20px;
+        }
+
+        #chartDiv, #mapDiv, #trendDiv, #municipioDiv, #clinicalDiv {
+            width: 100%;
+            height: 400px;
+        }
+
+        #mapDiv {
+            height: 600px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* TABLA */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .table-container {
+            background-color: var(--blanco);
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: var(--sombra);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table thead {
+            background-color: var(--rojo);
+            color: var(--blanco);
+        }
+
+        table th {
+            padding: 15px;
+            text-align: left;
+            font-weight: 700;
+            text-transform: uppercase;
+            font-size: 0.9em;
+            letter-spacing: 0.5px;
+        }
+
+        table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--gris-claro);
+        }
+
+        table tbody tr:hover {
+            background-color: rgba(215, 30, 40, 0.05);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* BOTONES */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .btn {
+            padding: 12px 32px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background-color: var(--rojo);
+            color: var(--blanco);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--azul);
+            box-shadow: 0 6px 20px rgba(0, 61, 165, 0.3);
+            transform: translateY(-2px);
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* ALERTA */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .alert {
+            background-color: #FFF3CD;
+            border-left: 5px solid var(--naranja);
+            padding: 15px;
+            border-radius: 8px;
+            color: #856404;
+            margin-bottom: 20px;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* RESPONSIVE */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        @media (max-width: 768px) {
+            .header {
+                padding: 30px 20px;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .filter-section {
+                padding: 20px;
+            }
+
+            .filters-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .metric-card {
+                padding: 25px;
+            }
+
+            .metric-value {
+                font-size: 2em;
+            }
+
+            .tabs {
+                flex-direction: column;
+            }
+
+            .tab-button {
+                width: 100%;
+                text-align: center;
+            }
+
+            #mapDiv {
+                height: 400px;
+            }
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* FOOTER */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        footer {
+            background-color: var(--gris-oscuro);
+            color: var(--blanco);
+            text-align: center;
+            padding: 30px;
+            margin-top: 50px;
+            font-size: 0.9em;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2em;
+            color: var(--azul);
+        }
+
+        .loading::after {
+            content: '';
+            animation: dots 1s steps(3, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% {
+                content: '';
+            }
+            40% {
+                content: '.';
+            }
+            60% {
+                content: '..';
+            }
+            80%, 100% {
+                content: '...';
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- HEADER -->
+    <div class="header">
+        <div class="container">
+            <h1>🏥 SIVIGILA</h1>
+            <p>Evento 549: Morbilidad Materna Extrema | Sistema de Vigilancia Epidemiológica</p>
+            <p>Gobernación de Risaralda - 2026</p>
+        </div>
+    </div>
+
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div class="container">
+        <!-- FILTROS -->
+        <div class="filter-section">
+            <h2>🔍 Filtros Avanzados</h2>
+            <div class="filters-grid">
+                <div class="filter-group">
+                    <label for="deptFilter">📍 Departamento</label>
+                    <select id="deptFilter" multiple>
+                        <option selected>Risaralda</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="sexFilter">👥 Sexo</label>
+                    <select id="sexFilter" multiple>
+                        <option value="F" selected>Femenino</option>
+                        <option value="M" selected>Masculino</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label for="ageFilter">📊 Edad Máxima</label>
+                    <input type="number" id="ageFilter" value="100" min="0" max="150">
+                </div>
+                <div class="filter-counter">
+                    <div class="big-number" id="recordCount">0</div>
+                    <div class="small-text">de 94 registros</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MÉTRICAS -->
+        <h2 class="section-title">📊 Métricas Principales</h2>
+        <div class="metrics-grid">
+            <div class="metric-card">
+                <div class="metric-label">Total Registros</div>
+                <div class="metric-value" id="totalMetric">0</div>
+                <div class="metric-subtext">en el período</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Edad Promedio</div>
+                <div class="metric-value" id="ageMetric">0</div>
+                <div class="metric-subtext">años</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Población Femenina</div>
+                <div class="metric-value" id="femaleMetric">0</div>
+                <div class="metric-subtext">casos</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Departamentos</div>
+                <div class="metric-value" id="deptMetric">0</div>
+                <div class="metric-subtext">afectados</div>
+            </div>
+        </div>
+
+        <!-- INFORMACIÓN DEL EVENTO -->
+        <h2 class="section-title">ℹ️ Información del Evento</h2>
+        <div class="info-section">
+            <h3>Morbilidad Materna Extrema (MME) - Evento 549</h3>
+            <p><strong>Definición:</strong> Se refiere a una complicación que pone en peligro la vida de la gestante o puérpera. Incluye condiciones severas como preeclampsia severa/eclampsia, sepsis/shock séptico, y hemorragia posparto.</p>
+            <p><strong>Importancia:</strong> La MME es un indicador clave de la calidad de la atención obstétrica. Su análisis territorial permite identificar brechas en la cobertura y acceso a servicios de salud especializados en diferentes regiones.</p>
+            <p><strong>Distribución Territorial:</strong> El análisis por municipios de Risaralda permite identificar áreas con mayor riesgo y necesidad de intervención especializada.</p>
+            <p><strong>Período de Análisis:</strong> Año 2026 | Gobernación de Risaralda</p>
+        </div>
+
+        <!-- TABS -->
+        <h2 class="section-title">📈 Análisis Detallado</h2>
+        <div class="tabs">
+            <button class="tab-button active" onclick="showTab(0)">📍 Territorial</button>
+            <button class="tab-button" onclick="showTab(1)">👥 Población</button>
+            <button class="tab-button" onclick="showTab(2)">📈 Tendencias</button>
+            <button class="tab-button" onclick="showTab(3)">🗺️ Mapa Risaralda</button>
+            <button class="tab-button" onclick="showTab(4)">🔬 Clínico</button>
+            <button class="tab-button" onclick="showTab(5)">📋 Datos</button>
+        </div>
+
+        <!-- TAB 1: TERRITORIAL -->
+        <div class="tab-content active" id="tab0">
+            <div class="chart-container">
+                <div class="chart-title">📍 Distribución por Departamento</div>
+                <div id="chartDiv"></div>
+            </div>
+            <div class="table-container">
+                <table id="territorialTable">
+                    <thead>
+                        <tr>
+                            <th>Departamento</th>
+                            <th>Casos</th>
+                            <th>Porcentaje</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 2: POBLACIÓN -->
+        <div class="tab-content" id="tab1">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 25px;">
+                <div class="chart-container">
+                    <div class="chart-title">👤 Por Sexo</div>
+                    <canvas id="sexChart"></canvas>
+                </div>
+                <div class="chart-container">
+                    <div class="chart-title">📅 Por Grupo de Edad</div>
+                    <canvas id="ageChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 3: TENDENCIAS -->
+        <div class="tab-content" id="tab2">
+            <div class="chart-container">
+                <div class="chart-title">📈 Evolución Temporal</div>
+                <div id="trendDiv"></div>
+            </div>
+        </div>
+
+        <!-- TAB 4: MAPA RISARALDA -->
+        <div class="tab-content" id="tab3">
+            <div class="chart-container">
+                <div class="chart-title">🗺️ Mapa Interactivo de Risaralda</div>
+                <div id="mapDiv"></div>
+            </div>
+            <div class="table-container">
+                <table id="municipiosTable">
+                    <thead>
+                        <tr>
+                            <th>Municipio</th>
+                            <th>Casos</th>
+                            <th>Porcentaje</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 5: CLÍNICO -->
+        <div class="tab-content" id="tab4">
+            <div class="chart-container">
+                <div class="chart-title">🔬 Complicaciones Clínicas</div>
+                <div id="clinicalDiv"></div>
+            </div>
+            <div class="table-container">
+                <table id="clinicalTable">
+                    <thead>
+                        <tr>
+                            <th>Complicación</th>
+                            <th>Casos</th>
+                            <th>Porcentaje</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 6: DATOS -->
+        <div class="tab-content" id="tab5">
+            <div class="alert">
+                <strong>⚠️ Seguridad de Datos:</strong> Se han eliminado automáticamente columnas sensibles 
+                (nombres, apellidos, identificación, teléfono, correo, dirección).
+            </div>
+            <div style="margin-bottom: 20px;">
+                <label for="recordsDisplay">📊 Mostrar registros:</label>
+                <select id="recordsDisplay" onchange="updateDataTable()">
+                    <option value="10">10</option>
+                    <option value="25" selected>25</option>
+                    <option value="50">50</option>
+                    <option value="100">100</option>
+                    <option value="all">Todos</option>
+                </select>
+                <button class="btn btn-primary" onclick="downloadCSV()">📥 Descargar CSV</button>
+            </div>
+            <div class="table-container">
+                <table id="dataTable">
+                    <thead>
+                        <tr id="headerRow"></tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+        <p>SIVIGILA - Sistema de Vigilancia Epidemiológica | Gobernación de Risaralda | 2026</p>
+    </footer>
+
+    <script>
+        // ═════════════════════════════════════════════════════════════════════
+        // CONFIGURACIÓN GLOBAL
+        // ═════════════════════════════════════════════════════════════════════
+        const ROJO = '#D71E28';
+        const AZUL = '#003DA5';
+        const NARANJA = '#FF8C00';
+
+        // Municipios de Risaralda con coordenadas
+        const MUNICIPIOS = {
+            'Pereira': { lat: 4.8133, lon: -75.6969, codigo: 66001 },
+            'Dosquebradas': { lat: 4.8833, lon: -75.6333, codigo: 66052 },
+            'Santa Rosa de Cabal': { lat: 4.8669, lon: -75.4333, codigo: 66054 },
+            'Cartago': { lat: 4.7500, lon: -75.9167, codigo: 66058 },
+            'Filandia': { lat: 4.6500, lon: -75.6167, codigo: 66073 },
+            'La Celia': { lat: 5.0000, lon: -75.8000, codigo: 66087 },
+            'La Tebaida': { lat: 4.8500, lon: -75.7833, codigo: 66089 },
+            'Neira': { lat: 5.1333, lon: -75.5333, codigo: 66091 },
+            'Otú': { lat: 5.2333, lon: -75.5500, codigo: 66103 },
+            'Balboa': { lat: 5.0667, lon: -75.9833, codigo: 66104 },
+            'Guatica': { lat: 5.2500, lon: -75.8833, codigo: 66106 },
+            'Apía': { lat: 5.1167, lon: -75.8000, codigo: 66001 },
+            'Mistrato': { lat: 5.0833, lon: -75.7333, codigo: 66104 },
+            'Santuario': { lat: 4.6167, lon: -75.4833, codigo: 66306 }
+        };
+
+        let allData = [];
+        let filteredData = [];
+
+        // ═════════════════════════════════════════════════════════════════════
+        // CARGAR DATOS
+        // ═════════════════════════════════════════════════════════════════════
+        function loadData() {
+            // Datos de ejemplo (en producción, vendrían de la API)
+            allData = [
+                { id: 1, departamento: 'Risaralda', municipio: 'Pereira', sexo: 'F', edad: 28, fecha: '2026-01-15', eclampsia: 'S', hemorragia: 'N', sepsis: 'N' },
+                { id: 2, departamento: 'Risaralda', municipio: 'Dosquebradas', sexo: 'F', edad: 35, fecha: '2026-01-18', eclampsia: 'N', hemorragia: 'S', sepsis: 'N' },
+                { id: 3, departamento: 'Risaralda', municipio: 'Cartago', sexo: 'F', edad: 42, fecha: '2026-01-22', eclampsia: 'N', hemorragia: 'N', sepsis: 'S' },
+                { id: 4, departamento: 'Risaralda', municipio: 'Pereira', sexo: 'F', edad: 31, fecha: '2026-02-05', eclampsia: 'S', hemorragia: 'S', sepsis: 'N' },
+                { id: 5, departamento: 'Risaralda', municipio: 'Santa Rosa de Cabal', sexo: 'F', edad: 27, fecha: '2026-02-10', eclampsia: 'N', hemorragia: 'N', sepsis: 'N' },
+                { id: 6, departamento: 'Risaralda', municipio: 'Filandia', sexo: 'F', edad: 38, fecha: '2026-02-15', eclampsia: 'S', hemorragia: 'N', sepsis: 'S' },
+                { id: 7, departamento: 'Risaralda', municipio: 'Pereira', sexo: 'F', edad: 25, fecha: '2026-02-20', eclampsia: 'N', hemorragia: 'S', sepsis: 'N' },
+                { id: 8, departamento: 'Risaralda', municipio: 'La Tebaida', sexo: 'F', edad: 33, fecha: '2026-03-01', eclampsia: 'N', hemorragia: 'N', sepsis: 'N' },
+                { id: 9, departamento: 'Risaralda', municipio: 'Dosquebradas', sexo: 'F', edad: 29, fecha: '2026-03-05', eclampsia: 'S', hemorragia: 'N', sepsis: 'S' },
+                { id: 10, departamento: 'Risaralda', municipio: 'Neira', sexo: 'F', edad: 41, fecha: '2026-03-10', eclampsia: 'N', hemorragia: 'S', sepsis: 'N' },
+                // ... más datos se cargarían dinámicamente
+            ];
+
+            filteredData = [...allData];
+            updateDashboard();
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // FUNCIONES DE FILTRADO
+        // ═════════════════════════════════════════════════════════════════════
+        function applyFilters() {
+            const deptFilter = document.getElementById('deptFilter').value;
+            const sexFilter = Array.from(document.getElementById('sexFilter').selectedOptions, el => el.value);
+            const ageMax = parseInt(document.getElementById('ageFilter').value) || 150;
+
+            filteredData = allData.filter(row => {
+                return sexFilter.includes(row.sexo) && row.edad <= ageMax;
+            });
+
+            updateDashboard();
+            document.getElementById('recordCount').textContent = filteredData.length;
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // ACTUALIZAR DASHBOARD
+        // ═════════════════════════════════════════════════════════════════════
+        function updateDashboard() {
+            updateMetrics();
+            updateTerritorialChart();
+            updatePopulationCharts();
+            updateTrendChart();
+            updateMapChart();
+            updateClinicalChart();
+            updateDataTable();
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // MÉTRICAS
+        // ═════════════════════════════════════════════════════════════════════
+        function updateMetrics() {
+            const total = filteredData.length;
+            const avgAge = filteredData.length > 0 ? (filteredData.reduce((sum, d) => sum + d.edad, 0) / total).toFixed(1) : 0;
+            const female = filteredData.filter(d => d.sexo === 'F').length;
+            const depts = new Set(filteredData.map(d => d.departamento)).size;
+
+            document.getElementById('totalMetric').textContent = total;
+            document.getElementById('ageMetric').textContent = avgAge;
+            document.getElementById('femaleMetric').textContent = female;
+            document.getElementById('deptMetric').textContent = depts;
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // GRÁFICA TERRITORIAL
+        // ═════════════════════════════════════════════════════════════════════
+        function updateTerritorialChart() {
+            const deptCounts = {};
+            filteredData.forEach(d => {
+                deptCounts[d.departamento] = (deptCounts[d.departamento] || 0) + 1;
+            });
+
+            const trace = {
+                y: Object.keys(deptCounts),
+                x: Object.values(deptCounts),
+                type: 'bar',
+                orientation: 'h',
+                marker: {
+                    color: Object.values(deptCounts),
+                    colorscale: [[0, AZUL], [1, ROJO]],
+                    showscale: false
+                }
+            };
+
+            const layout = {
+                margin: { l: 150 },
+                title: '<b>Distribución por Departamento</b>',
+                xaxis: { title: 'Número de Casos' },
+                yaxis: { title: 'Departamento' },
+                font: { size: 12 },
+                plot_bgcolor: '#F9FAFB',
+                paper_bgcolor: '#FFFFFF'
+            };
+
+            Plotly.newPlot('chartDiv', [trace], layout, { responsive: true });
+
+            // Actualizar tabla
+            const tbody = document.querySelector('#territorialTable tbody');
+            tbody.innerHTML = '';
+            Object.entries(deptCounts).forEach(([dept, count]) => {
+                const pct = ((count / Object.values(deptCounts).reduce((a, b) => a + b, 0)) * 100).toFixed(2);
+                tbody.innerHTML += `<tr><td>${dept}</td><td>${count}</td><td>${pct}%</td></tr>`;
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // GRÁFICAS POBLACIÓN
+        // ═════════════════════════════════════════════════════════════════════
+        function updatePopulationCharts() {
+            // Sexo
+            const sexCounts = { 'F': 0, 'M': 0 };
+            filteredData.forEach(d => {
+                sexCounts[d.sexo] = (sexCounts[d.sexo] || 0) + 1;
+            });
+
+            const sexCtx = document.getElementById('sexChart').getContext('2d');
+            new Chart(sexCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Femenino', 'Masculino'],
+                    datasets: [{
+                        data: Object.values(sexCounts),
+                        backgroundColor: [ROJO, AZUL],
+                        borderColor: '#FFFFFF',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+
+            // Edad
+            const ageBins = { '<20': 0, '20-24': 0, '25-29': 0, '30-34': 0, '35-39': 0, '40-49': 0, '50+': 0 };
+            filteredData.forEach(d => {
+                if (d.edad < 20) ageBins['<20']++;
+                else if (d.edad < 25) ageBins['20-24']++;
+                else if (d.edad < 30) ageBins['25-29']++;
+                else if (d.edad < 35) ageBins['30-34']++;
+                else if (d.edad < 40) ageBins['35-39']++;
+                else if (d.edad < 50) ageBins['40-49']++;
+                else ageBins['50+']++;
+            });
+
+            const ageCtx = document.getElementById('ageChart').getContext('2d');
+            new Chart(ageCtx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(ageBins),
+                    datasets: [{
+                        label: 'Casos',
+                        data: Object.values(ageBins),
+                        backgroundColor: NARANJA,
+                        borderColor: '#FFFFFF',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: { beginAtZero: true }
+                    }
+                }
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // GRÁFICA TENDENCIAS
+        // ═════════════════════════════════════════════════════════════════════
+        function updateTrendChart() {
+            const dateCounts = {};
+            filteredData.forEach(d => {
+                dateCounts[d.fecha] = (dateCounts[d.fecha] || 0) + 1;
+            });
+
+            const dates = Object.keys(dateCounts).sort();
+            const counts = dates.map(d => dateCounts[d]);
+
+            const trace = {
+                x: dates,
+                y: counts,
+                type: 'scatter',
+                mode: 'lines+markers',
+                fill: 'tozeroy',
+                line: { color: ROJO, width: 3 },
+                marker: { size: 8, color: ROJO }
+            };
+
+            const layout = {
+                title: '<b>Evolución Temporal</b>',
+                xaxis: { title: 'Fecha' },
+                yaxis: { title: 'Casos' },
+                plot_bgcolor: '#F9FAFB',
+                paper_bgcolor: '#FFFFFF'
+            };
+
+            Plotly.newPlot('trendDiv', [trace], layout, { responsive: true });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // MAPA RISARALDA
+        // ═════════════════════════════════════════════════════════════════════
+        function updateMapChart() {
+            const municCounts = {};
+            filteredData.forEach(d => {
+                municCounts[d.municipio] = (municCounts[d.municipio] || 0) + 1;
+            });
+
+            const lats = [];
+            const lons = [];
+            const sizes = [];
+            const colors = [];
+            const texts = [];
+            const names = [];
+
+            Object.entries(MUNICIPIOS).forEach(([name, coords]) => {
+                const count = municCounts[name] || 0;
+                lats.push(coords.lat);
+                lons.push(coords.lon);
+                sizes.push(Math.max(10, Math.min(50, count * 3)));
+                colors.push(count);
+                texts.push(`<b>${name}</b><br>Casos: ${count}`);
+                names.push(name);
+            });
+
+            const trace = {
+                mode: 'markers+text',
+                type: 'scattergeo',
+                lon: lons,
+                lat: lats,
+                text: names,
+                textposition: 'top center',
+                textfont: { size: 11 },
+                marker: {
+                    size: sizes,
+                    color: colors,
+                    colorscale: [[0, AZUL], [1, ROJO]],
+                    showscale: true,
+                    colorbar: { title: 'Casos' },
+                    line: { color: '#FFFFFF', width: 2 }
+                },
+                hovertext: texts,
+                hoverinfo: 'text'
+            };
+
+            const layout = {
+                title: '<b>Distribución en Municipios de Risaralda</b>',
+                geo: {
+                    scope: 'world',
+                    center: { lat: 4.9, lon: -75.7 },
+                    projection: { type: 'mercator' },
+                    lonaxis: { range: [-76.5, -75.0] },
+                    lataxis: { range: [4.3, 5.5] },
+                    showland: true,
+                    landcolor: '#F3F3F3',
+                    coastcolor: '#CCCCCC',
+                    showocean: true,
+                    oceancolor: '#E6F5FF'
+                }
+            };
+
+            Plotly.newPlot('mapDiv', [trace], layout, { responsive: true });
+
+            // Tabla municipios
+            const tbody = document.querySelector('#municipiosTable tbody');
+            tbody.innerHTML = '';
+            const sorted = Object.entries(municCounts).sort((a, b) => b[1] - a[1]);
+            sorted.forEach(([name, count]) => {
+                const pct = ((count / Object.values(municCounts).reduce((a, b) => a + b, 0)) * 100).toFixed(2);
+                tbody.innerHTML += `<tr><td>${name}</td><td>${count}</td><td>${pct}%</td></tr>`;
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // GRÁFICA CLÍNICA
+        // ═════════════════════════════════════════════════════════════════════
+        function updateClinicalChart() {
+            const complications = {
+                'Eclampsia': filteredData.filter(d => d.eclampsia === 'S').length,
+                'Hemorragia': filteredData.filter(d => d.hemorragia === 'S').length,
+                'Sepsis': filteredData.filter(d => d.sepsis === 'S').length
+            };
+
+            const trace = {
+                x: Object.keys(complications),
+                y: Object.values(complications),
+                type: 'bar',
+                marker: { color: NARANJA }
+            };
+
+            const layout = {
+                title: '<b>Complicaciones Clínicas</b>',
+                xaxis: { title: 'Complicación' },
+                yaxis: { title: 'Casos' },
+                plot_bgcolor: '#F9FAFB',
+                paper_bgcolor: '#FFFFFF'
+            };
+
+            Plotly.newPlot('clinicalDiv', [trace], layout, { responsive: true });
+
+            // Tabla
+            const tbody = document.querySelector('#clinicalTable tbody');
+            tbody.innerHTML = '';
+            Object.entries(complications).forEach(([name, count]) => {
+                const pct = ((count / filteredData.length) * 100).toFixed(2);
+                tbody.innerHTML += `<tr><td>${name}</td><td>${count}</td><td>${pct}%</td></tr>`;
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // TABLA DATOS
+        // ═════════════════════════════════════════════════════════════════════
+        function updateDataTable() {
+            const limit = document.getElementById('recordsDisplay').value;
+            const display = limit === 'all' ? filteredData : filteredData.slice(0, parseInt(limit));
+
+            if (display.length === 0) return;
+
+            const keys = Object.keys(display[0]);
+            const headerRow = document.getElementById('headerRow');
+            headerRow.innerHTML = keys.map(k => `<th>${k}</th>`).join('');
+
+            const tbody = document.querySelector('#dataTable tbody');
+            tbody.innerHTML = '';
+            display.forEach(row => {
+                tbody.innerHTML += `<tr>${keys.map(k => `<td>${row[k]}</td>`).join('')}</tr>`;
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // DESCARGAR CSV
+        // ═════════════════════════════════════════════════════════════════════
+        function downloadCSV() {
+            if (filteredData.length === 0) return;
+
+            const keys = Object.keys(filteredData[0]);
+            const csv = [keys.join(',')];
+            filteredData.forEach(row => {
+                csv.push(keys.map(k => `"${row[k]}"`).join(','));
+            });
+
+            const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `SIVIGILA_549_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // TABS
+        // ═════════════════════════════════════════════════════════════════════
+        function showTab(tabIndex) {
+            document.querySelectorAll('.tab-content').forEach((el, idx) => {
+                el.classList.toggle('active', idx === tabIndex);
+            });
+
+            document.querySelectorAll('.tab-button').forEach((el, idx) => {
+                el.classList.toggle('active', idx === tabIndex);
+            });
+        }
+
+        // ═════════════════════════════════════════════════════════════════════
+        // EVENT LISTENERS
+        // ═════════════════════════════════════════════════════════════════════
+        document.getElementById('deptFilter').addEventListener('change', applyFilters);
+        document.getElementById('sexFilter').addEventListener('change', applyFilters);
+        document.getElementById('ageFilter').addEventListener('input', applyFilters);
+
+        // ═════════════════════════════════════════════════════════════════════
+        // INICIALIZAR
+        // ═════════════════════════════════════════════════════════════════════
+        window.addEventListener('DOMContentLoaded', loadData);
+    </script>
+</body>
+</html>

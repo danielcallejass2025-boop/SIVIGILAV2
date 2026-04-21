@@ -1,0 +1,30 @@
+# Core dependencies
+pandas==2.2.0
+openpyxl==3.1.5
+xlrd==2.0.1
+chardet==5.2.0
+odfpy==1.4.1
+python-dotenv==1.0.0
+
+# Google Drive integration
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+google-api-python-client==2.105.0
+
+# Web interface
+streamlit==1.28.1
+plotly==5.18.0
+
+# Data processing & validation
+numpy==1.24.3
+fuzzywuzzy==0.18.0
+python-Levenshtein==0.23.0
+
+# Logging & monitoring
+colorama==0.4.6
+
+# Utilities
+requests==2.32.0
+pyyaml==6.0.1
+pytz==2024.1
+
