@@ -1,0 +1,120 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card form-card secretary-form-card">
+    <div class="secretary-form-head">
+        <h2>{{ 'Editar epidemiólogo' if mode == 'edit' else 'Crear epidemiólogo' }}</h2>
+        <a class="btn" href="{{ url_for('admin_epi_list') }}">Volver al listado</a>
+    </div>
+
+    {% if mode == 'edit' %}
+        <p class="muted">Administra perfil, estado, evento y credenciales del usuario epidemiológico.</p>
+    {% else %}
+        <p class="muted">Se generará usuario automático y contraseña temporal totalmente aleatoria, visible al finalizar el registro.</p>
+    {% endif %}
+
+    <form
+        method="post"
+        class="form-grid"
+        id="epidemiologoForm"
+        data-mode="{{ mode }}"
+        novalidate
+    >
+        <label>Nombre completo
+            <input
+                type="text"
+                name="full_name"
+                id="epi-nombre"
+                required
+                minlength="6"
+                maxlength="150"
+                value="{{ user_obj.full_name if user_obj else '' }}"
+            >
+        </label>
+
+        <label>Cédula
+            <input
+                type="text"
+                name="cedula"
+                id="epi-cedula"
+                required
+                pattern="[0-9]{6,20}"
+                value="{{ user_obj.cedula if user_obj else '' }}"
+            >
+        </label>
+
+        <label>Correo electrónico
+            <input
+                type="email"
+                name="email"
+                id="epi-correo"
+                required
+                maxlength="180"
+                value="{{ user_obj.email if user_obj else '' }}"
+            >
+        </label>
+
+        {% if mode == 'edit' %}
+            <label>Usuario
+                <input type="text" name="username" required minlength="4" maxlength="80" value="{{ user_obj.username if user_obj else '' }}">
+            </label>
+        {% endif %}
+
+        <label>Evento asignado
+            <select
+                name="assigned_event"
+                id="epi-evento"
+                {% if mode != 'edit' %}required{% endif %}
+            >
+                <option value="">Sin evento</option>
+                {% for e in eventos %}
+                    <option value="{{ e.code }}" {% if user_obj and user_obj.assigned_event_code == e.code %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <div id="epi-feedback" class="alert alert-warning epi-feedback epi-feedback-hidden"></div>
+
+        {% if mode == 'edit' %}
+            <label class="checkline">
+                <input type="checkbox" name="is_active" {% if user_obj and user_obj.is_active %}checked{% endif %}>
+                <span>Usuario activo</span>
+            </label>
+
+            <fieldset class="admin-cred-fieldset">
+                <legend>Gestión de contraseña</legend>
+
+                <label>Modo de actualización
+                    <select name="password_mode">
+                        <option value="keep">Mantener contraseña actual</option>
+                        <option value="random">Generar nueva aleatoria</option>
+                        <option value="manual">Definir manualmente</option>
+                    </select>
+                </label>
+
+                <label>Contraseña manual (solo si seleccionas modo manual)
+                    <input type="text" name="manual_password" minlength="8" maxlength="120" placeholder="Minimo 8 caracteres">
+                </label>
+
+                <label class="checkline">
+                    <input type="checkbox" name="must_change_password">
+                    <span>Forzar cambio de contraseña en el próximo ingreso</span>
+                </label>
+            </fieldset>
+        {% endif %}
+
+        <button class="btn btn-primary" type="submit" id="epi-submit-btn">{{ 'Guardar cambios' if mode == 'edit' else 'Crear usuario' }}</button>
+    </form>
+</section>
+
+{% if mode == 'create' %}
+<script>
+window.EPIPROC_APPS_SCRIPT_CONFIG = {
+    deployUrl: {{ (apps_script_url or '')|tojson }},
+    apiKey: {{ (apps_script_api_key or '')|tojson }},
+    syncEndpoint: {{ url_for('admin_epi_sync_from_apps_script')|tojson }}
+};
+</script>
+<script src="{{ url_for('static', filename='js/admin_epidemiologo_apps_script.js') }}?v=20260421-fix6"></script>
+{% endif %}
+{% endblock %}

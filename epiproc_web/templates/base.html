@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ brand_name }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+<div class="gov-top-strip">
+    <div class="gov-strip-inner">
+        <span class="gov-mark">gov.co</span>
+        <div class="gov-strip-tools">
+            <span>Portal institucional</span>
+        </div>
+    </div>
+</div>
+
+<header class="topbar">
+    <div class="brand-wrap">
+        <img src="{{ logo_url }}" alt="Logo EPIPROC" class="brand-logo">
+        <div>
+            <h1 class="brand-title">EPIPROC</h1>
+            <p class="brand-subtitle">Procesamiento Epidemiológico</p>
+        </div>
+    </div>
+
+    <nav class="topnav">
+        <a href="{{ url_for('home') }}">Inicio</a>
+
+        {% if current_user %}
+            {% if current_user.role == role_secretario %}
+                <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+                <a href="{{ url_for('admin_bulletins') }}">Boletines</a>
+                <a href="{{ url_for('admin_epi_list') }}">Epidemiólogos</a>
+                <a href="{{ url_for('admin_panel') }}">Secretario</a>
+            {% elif current_user.role == role_epidemiologo %}
+                <a href="{{ url_for('epi_dashboard') }}">Dashboard</a>
+                <a href="{{ url_for('epi_bulletins') }}">Boletines</a>
+                <a href="{{ url_for('epi_panel') }}">Epidemiólogo</a>
+            {% endif %}
+            <a href="{{ url_for('logout') }}" class="btn btn-danger">Cerrar sesión</a>
+        {% else %}
+            <a href="{{ url_for('dashboard_public') }}">Dashboard</a>
+            <a href="{{ url_for('bulletins_public') }}">Boletines</a>
+            <a href="{{ url_for('login') }}" class="btn btn-primary">Iniciar sesión</a>
+        {% endif %}
+    </nav>
+</header>
+
+<main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <section class="alerts">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ category }}">{{ message }}</div>
+                {% endfor %}
+            </section>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+    <small>EPIPROC - Procesamiento Epidemiológico</small>
+</footer>
+</body>
+</html>

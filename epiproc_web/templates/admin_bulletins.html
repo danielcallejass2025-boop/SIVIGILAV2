@@ -1,0 +1,88 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card secretary-hero">
+    <div>
+        <p class="hero-kicker">Publicaciones</p>
+        <h2>Administración de Boletines</h2>
+        <p class="muted">Controla estado, contenido y vigencia de los boletines epidemiológicos.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{{ url_for('admin_panel') }}">Volver al panel</a>
+        <a class="btn btn-primary" href="{{ url_for('admin_bulletin_new') }}">Nuevo boletín</a>
+    </div>
+</section>
+
+<section class="card">
+    <form class="filters" method="get">
+        <label>Buscar
+            <input type="text" name="q" value="{{ filters.q }}" placeholder="Título o contenido">
+        </label>
+
+        <label>Evento
+            <select name="evento">
+                <option value="">Todos</option>
+                {% for e in eventos %}
+                    <option value="{{ e.code }}" {% if filters.evento == (e.code|string) %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>Estado
+            <select name="estado">
+                <option value="">Todos</option>
+                <option value="BORRADOR" {% if filters.estado == 'BORRADOR' %}selected{% endif %}>BORRADOR</option>
+                <option value="PUBLICADO" {% if filters.estado == 'PUBLICADO' %}selected{% endif %}>PUBLICADO</option>
+            </select>
+        </label>
+
+        <label>Desde
+            <input type="date" name="desde" value="{{ filters.desde }}">
+        </label>
+
+        <label>Hasta
+            <input type="date" name="hasta" value="{{ filters.hasta }}">
+        </label>
+
+        <button class="btn btn-primary" type="submit">Filtrar</button>
+    </form>
+</section>
+
+<section class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Título</th>
+                    <th>Evento</th>
+                    <th>Estado</th>
+                    <th>Autor</th>
+                    <th>Actualizado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in bulletins %}
+                    <tr>
+                        <td>{{ b.title }}</td>
+                        <td>{{ b.event_code }}</td>
+                        <td><span class="tag">{{ b.status }}</span></td>
+                        <td>{{ b.author.full_name if b.author else 'N/A' }}</td>
+                        <td>{{ b.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <div class="actions compact">
+                                <a class="btn btn-small" href="{{ url_for('admin_bulletin_edit', bulletin_id=b.id) }}">Editar</a>
+                                <a class="btn btn-small" href="{{ url_for('download_bulletin', bulletin_id=b.id) }}">Descargar</a>
+                            </div>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="6" class="muted">No hay boletines para los filtros seleccionados.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

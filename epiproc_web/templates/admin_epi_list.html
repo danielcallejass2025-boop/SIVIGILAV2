@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card secretary-hero">
+    <div>
+        <p class="hero-kicker">Gestión Secretaría</p>
+        <h2>Administración de Epidemiología</h2>
+        <p class="muted">Gestiona usuarios, credenciales, activación y asignación de eventos desde un solo panel.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{{ url_for('admin_panel') }}">Volver al panel</a>
+        <a class="btn btn-primary" href="{{ url_for('admin_epi_new') }}">Crear epidemiólogo</a>
+    </div>
+</section>
+
+<section class="card">
+    <form class="filters" method="get">
+        <label>Buscar
+            <input type="text" name="q" value="{{ filters.q }}" placeholder="Nombre, usuario, cédula o correo">
+        </label>
+
+        <label>Estado
+            <select name="estado">
+                <option value="">Todos</option>
+                <option value="ACTIVO" {% if filters.estado == 'ACTIVO' %}selected{% endif %}>Activos</option>
+                <option value="INACTIVO" {% if filters.estado == 'INACTIVO' %}selected{% endif %}>Inactivos</option>
+            </select>
+        </label>
+
+        <button class="btn btn-primary" type="submit">Aplicar filtros</button>
+    </form>
+</section>
+
+<section class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Usuario</th>
+                    <th>Contraseña</th>
+                    <th>Cédula</th>
+                    <th>Correo</th>
+                    <th>Evento asignado</th>
+                    <th>Activo</th>
+                    <th>Actualizada</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                    <tr>
+                        <td>{{ u.full_name }}</td>
+                        <td>{{ u.username }}</td>
+                        <td>
+                            {% if u.password_visible_plain %}
+                                <span class="chip secret-chip">{{ u.password_visible_plain }}</span>
+                            {% else %}
+                                <span class="muted">No disponible</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ u.cedula }}</td>
+                        <td>{{ u.email }}</td>
+                        <td>
+                            <form method="post" action="{{ url_for('admin_epi_assign_event', user_id=u.id) }}" class="inline-form">
+                                <select name="assigned_event" aria-label="Evento asignado" title="Evento asignado">
+                                    <option value="">Sin evento</option>
+                                    {% for e in eventos %}
+                                        <option value="{{ e.code }}" {% if u.assigned_event_code == e.code %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
+                                    {% endfor %}
+                                </select>
+                                <button class="btn btn-small" type="submit">Guardar</button>
+                            </form>
+                        </td>
+                        <td>
+                            <span class="tag {{ 'tag-ok' if u.is_active else 'tag-bad' }}">{{ 'Activo' if u.is_active else 'Inactivo' }}</span>
+                        </td>
+                        <td>{{ u.credentials_updated_at.strftime('%Y-%m-%d %H:%M') if u.credentials_updated_at else 'Sin registro' }}</td>
+                        <td>
+                            <div class="actions compact">
+                                <a class="btn btn-small" href="{{ url_for('admin_epi_edit', user_id=u.id) }}">Editar</a>
+
+                                <form method="post" action="{{ url_for('admin_epi_reset_password', user_id=u.id) }}" onsubmit="return confirm('¿Regenerar contraseña de este usuario?');">
+                                    <button type="submit" class="btn btn-small">Regenerar clave</button>
+                                </form>
+
+                                <form method="post" action="{{ url_for('admin_epi_toggle_status', user_id=u.id) }}" onsubmit="return confirm('¿Cambiar estado de este usuario?');">
+                                    <button type="submit" class="btn btn-small">{{ 'Inactivar' if u.is_active else 'Activar' }}</button>
+                                </form>
+
+                                <form method="post" action="{{ url_for('admin_epi_delete', user_id=u.id) }}" onsubmit="return confirm('¿Eliminar usuario? Esta acción no se puede deshacer.');">
+                                    <button type="submit" class="btn btn-danger btn-small">Eliminar</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="9" class="muted">No se encontraron epidemiológos con los filtros aplicados.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

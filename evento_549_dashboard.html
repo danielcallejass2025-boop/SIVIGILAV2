@@ -13,14 +13,18 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
     
     <!-- CSS Externo -->
-    <link rel="stylesheet" href="evento_549_dashboard.css?v=20260413-1">
+    <link rel="stylesheet" href="evento_549_dashboard.css?v=20260421-rt1">
 </head>
 <body>
     <!-- HEADER PRINCIPAL -->
     <header class="header">
         <div class="header-content">
-            <h1>🏥 Sistema SIVIGILA</h1>
+            <div class="header-brand">
+                <img class="header-logo" src="https://8upload.com/image/3ec1b5cc7de8ad31/bloque2071.png" alt="Logo EPIPROC" />
+                <h1>🏥 Sistema SIVIGILA</h1>
+            </div>
             <p class="header-institution">Gobernación de Risaralda - Vigilancia Epidemiológica</p>
+            <p class="header-live">Sincronización local en tiempo real con archivo depurado</p>
             
             <!-- SELECTOR DE EVENTOS -->
             <div class="selector-evento-container">
@@ -59,7 +63,7 @@
             <div class="boletin-header">
                 <div class="boletin-header-content">
                     <div class="boletin-escudo">
-                        <span style="font-size: 2.5em;">🏛️</span>
+                        <span class="boletin-escudo-icon">🏛️</span>
                     </div>
                     <div class="boletin-header-text">
                         <h1>BOLETÍN EPIDEMIOLÓGICO</h1>
@@ -85,7 +89,7 @@
                     <div class="kpi-label">Casos Reportados</div>
                 </div>
                 <div class="boletin-kpi">
-                    <div class="kpi-valor" style="color: var(--color-primary);" id="boletin-variacion">↑ 17%</div>
+                    <div class="kpi-valor boletin-variacion-color" id="boletin-variacion">↑ 17%</div>
                     <div class="kpi-label">Variación vs 2025</div>
                 </div>
                 <div class="boletin-kpi">
@@ -244,7 +248,7 @@
 
                 <div class="info-box">
                     <strong>📌 Indicadores Principales:</strong>
-                    <ul style="margin: 10px 0 0 0;">
+                    <ul class="info-list-tight">
                         <li>Total de casos válidos: <strong>142</strong></li>
                         <li>Variación respecto a 2025: <strong>+12.7%</strong> (126 → 142 casos)</li>
                         <li>Oportunidad de notificación: <strong>78.9%</strong> (112 de 142 casos)</li>
@@ -265,7 +269,7 @@
 
                 <div class="grafico-contenedor">
                     <h5>Casos por Semana Epidemiológica</h5>
-                    <div id="boletin-grafico-semanas" style="min-height: 300px;"></div>
+                    <div id="boletin-grafico-semanas" class="chart-h-300"></div>
                 </div>
 
                 <h4>3.3 Análisis por Persona (Variables Sociodemográficas)</h4>
@@ -332,7 +336,7 @@
                             </tr>
                         </tbody>
                     </table>
-                    <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                    <p class="nota-metrica">
                         * Razón por 1.000 nacidos vivos (estimado)
                     </p>
                 </div>
@@ -604,6 +608,7 @@
                 <div class="barra-control-info">
                     <span class="barra-control-archivo" id="status-archivo"></span>
                     <span class="barra-control-fecha" id="status-timestamp"></span>
+                    <span class="barra-control-edad" id="status-age"></span>
                 </div>
             </div>
 
@@ -641,18 +646,18 @@
                 <!-- Gráfico principal: Curva epidemiológica -->
                 <div class="grafico-box grafico-full">
                     <h4>Casos por Semana Epidemiológica — Curva Epidemiológica 2026</h4>
-                    <div id="grafico-semanas" style="min-height: 380px;"></div>
+                    <div id="grafico-semanas" class="chart-h-380"></div>
                 </div>
 
                 <!-- Fila de 2 gráficos -->
                 <section class="graficos-grid grid-2col">
                     <div class="grafico-box">
                         <h4>Comparación Anual (2025 vs 2026)</h4>
-                        <div id="grafico-comparativo" style="min-height: 320px;"></div>
+                        <div id="grafico-comparativo" class="chart-h-320"></div>
                     </div>
                     <div class="grafico-box">
                         <h4>Distribución por Grupo de Edad</h4>
-                        <div id="grafico-edad" style="min-height: 320px;"></div>
+                        <div id="grafico-edad" class="chart-h-320"></div>
                     </div>
                 </section>
             </div>
@@ -696,11 +701,11 @@
                 <section class="graficos-grid grid-2col">
                     <div class="grafico-box">
                         <h4>Distribución por Grupo de Edad</h4>
-                        <div id="grafico-edad-socio" style="min-height: 350px;"></div>
+                        <div id="grafico-edad-socio" class="chart-h-350"></div>
                     </div>
                     <div class="grafico-box">
                         <h4>Distribución por Tipo de Afiliación al SGSSS</h4>
-                        <div id="grafico-afiliacion" style="min-height: 350px;"></div>
+                        <div id="grafico-afiliacion" class="chart-h-350"></div>
                     </div>
                 </section>
 
@@ -711,8 +716,8 @@
                             <tr>
                                 <th>Característica</th>
                                 <th>Categoría</th>
-                                <th style="text-align:center">Casos</th>
-                                <th style="text-align:center">Porcentaje</th>
+                                <th class="th-center">Casos</th>
+                                <th class="th-center">Porcentaje</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-socio-body">
@@ -760,11 +765,11 @@
                 <section class="graficos-grid grid-2col">
                     <div class="grafico-box">
                         <h4>Causas Principales de MME</h4>
-                        <div id="grafico-causas" style="min-height: 350px;"></div>
+                        <div id="grafico-causas" class="chart-h-350"></div>
                     </div>
                     <div class="grafico-box">
                         <h4>Momento del Evento (Período Gestacional)</h4>
-                        <div id="grafico-momento" style="min-height: 350px;"></div>
+                        <div id="grafico-momento" class="chart-h-350"></div>
                     </div>
                 </section>
 
@@ -775,9 +780,9 @@
                         <thead>
                             <tr>
                                 <th>Variable Clínica</th>
-                                <th style="text-align:center">Sí</th>
-                                <th style="text-align:center">No</th>
-                                <th style="text-align:center">% (Sí)</th>
+                                <th class="th-center">Sí</th>
+                                <th class="th-center">No</th>
+                                <th class="th-center">% (Sí)</th>
                             </tr>
                         </thead>
                         <tbody id="tabla-clinica-body">
@@ -833,12 +838,12 @@
                         <h4>Razón de MME por Municipio de Residencia × 1.000 NV</h4>
                         <table class="tabla-dashboard tabla-territorial">
                             <thead>
-                                <tr style="background: var(--color-secondary); color: white;">
-                                    <th style="width:5%;text-align:center;">#</th>
-                                    <th style="width:35%;">Municipio</th>
-                                    <th style="width:15%;text-align:center;">Nº Casos</th>
-                                    <th style="width:15%;text-align:center;">NV 2025</th>
-                                    <th style="width:30%;text-align:center;">Razón MME</th>
+                                <tr class="territorial-header-row">
+                                    <th class="territorial-col-rank">#</th>
+                                    <th class="territorial-col-name">Municipio</th>
+                                    <th class="territorial-col-cases">Nº Casos</th>
+                                    <th class="territorial-col-nv">NV 2025</th>
+                                    <th class="territorial-col-ratio">Razón MME</th>
                                 </tr>
                             </thead>
                             <tbody id="tabla-territorial-body">
@@ -887,17 +892,17 @@
                 <section class="graficos-grid grid-2col">
                     <div class="grafico-box">
                         <h4>Oportunidad de Notificación</h4>
-                        <div id="grafico-oportunidad" style="min-height: 350px;"></div>
+                        <div id="grafico-oportunidad" class="chart-h-350"></div>
                     </div>
                     <div class="grafico-box">
                         <h4>Clasificación por Tiempo de Notificación</h4>
-                        <div id="grafico-dias-notificacion" style="min-height: 350px;"></div>
+                        <div id="grafico-dias-notificacion" class="chart-h-350"></div>
                     </div>
                 </section>
 
                 <div class="info-box">
                     <strong>📋 Definiciones:</strong>
-                    <ul style="margin: 10px 0 0 0; font-size: 0.95em;">
+                    <ul class="info-list-tight info-list-sm">
                         <li><strong>Notificación Oportuna:</strong> Reportada dentro de 7 días del inicio de síntomas</li>
                         <li><strong>Completitud:</strong> % de variables críticas con información disponible</li>
                         <li><strong>Calidad:</strong> Evaluación integral considerando oportunidad, completitud y validez</li>
@@ -915,12 +920,12 @@
         <p><strong id="footer-evento">Evento 549</strong></p>
         <p>Gobernación de Risaralda | Secretaría de Salud Departamental</p>
         <p>Datos actualizados: <span id="fecha-actualizacion">08 de abril de 2026</span></p>
-        <p style="font-size: 0.9em; margin-top: 15px; opacity: 0.8;">
+        <p class="footer-aviso">
             ⚠️ Confidencial - Uso exclusivo personal de vigilancia epidemiológica
         </p>
     </footer>
 
     <!-- Scripts -->
-    <script src="evento_549_dashboard.js?v=20260413-9"></script>
+    <script src="evento_549_dashboard.js?v=20260421-rt1"></script>
 </body>
 </html>

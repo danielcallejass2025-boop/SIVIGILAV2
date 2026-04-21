@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card">
+    <h2>Boletines Publicados</h2>
+
+    <form class="filters" method="get">
+        <label>Buscar
+            <input type="text" name="q" value="{{ filters.q }}" placeholder="Título o contenido">
+        </label>
+
+        <label>Evento
+            <select name="evento">
+                <option value="">Todos</option>
+                {% for e in eventos %}
+                    <option value="{{ e.code }}" {% if filters.evento == (e.code|string) %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>Desde
+            <input type="date" name="desde" value="{{ filters.desde }}">
+        </label>
+
+        <label>Hasta
+            <input type="date" name="hasta" value="{{ filters.hasta }}">
+        </label>
+
+        <button class="btn btn-primary" type="submit">Filtrar</button>
+    </form>
+</section>
+
+<section class="card">
+    {% if bulletins %}
+        <div class="list">
+            {% for b in bulletins %}
+                <article class="list-item">
+                    <div class="row between center">
+                        <h3>{{ b.title }}</h3>
+                        <span class="tag">{{ b.status }}</span>
+                    </div>
+                    <p class="muted">Evento {{ b.event_code }} · {{ b.created_at.strftime('%Y-%m-%d %H:%M') }}</p>
+                    <p>{{ b.content[:360] }}{% if b.content|length > 360 %}...{% endif %}</p>
+                    <a class="btn" href="{{ url_for('download_bulletin', bulletin_id=b.id) }}">Descargar</a>
+                </article>
+            {% endfor %}
+        </div>
+    {% else %}
+        <p class="muted">No hay boletines publicados con los filtros seleccionados.</p>
+    {% endif %}
+</section>
+{% endblock %}

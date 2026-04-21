@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card secretary-hero">
+    <div>
+        <p class="hero-kicker">Seguridad y Trazabilidad</p>
+        <h2>Registro de Auditoría</h2>
+        <p class="muted">Supervisa los últimos 300 eventos críticos ejecutados en EPIPROC.</p>
+    </div>
+    <div class="actions">
+        <a class="btn" href="{{ url_for('admin_panel') }}">Volver al panel</a>
+    </div>
+</section>
+
+<section class="card">
+    <p class="muted">Tip: usa este registro para revisar cambios en usuarios, boletines, accesos y asignaciones.</p>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Fecha</th>
+                    <th>Usuario</th>
+                    <th>Acción</th>
+                    <th>Entidad</th>
+                    <th>Entidad ID</th>
+                    <th>Detalle</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                    <tr>
+                        <td>{{ log.created_at.strftime('%Y-%m-%d %H:%M:%S') }}</td>
+                        <td>{{ log.user.username if log.user else 'sistema' }}</td>
+                        <td>{{ log.action }}</td>
+                        <td>{{ log.entity }}</td>
+                        <td>{{ log.entity_id }}</td>
+                        <td>{{ log.details }}</td>
+                        <td>{{ log.ip_address }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="7" class="muted">No hay registros de auditoría disponibles.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

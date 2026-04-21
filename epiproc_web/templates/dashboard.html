@@ -1,0 +1,100 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card">
+    <div class="row between center">
+        <h2>Dashboard Epidemiológico</h2>
+        <div class="muted" id="syncStatus">Sincronizando...</div>
+    </div>
+
+    <form class="filters" id="dashboardFilters" onsubmit="return false;">
+        <label>Evento
+            <select id="eventoSelect" {% if assigned_event %}disabled{% endif %}>
+                {% for event in eventos %}
+                    <option value="{{ event.code }}" {% if event.code == selected_event %}selected{% endif %}>
+                        {{ event.code }} - {{ event.name }}
+                    </option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>Municipio
+            <select id="municipioSelect">
+                <option value="">Todos</option>
+            </select>
+        </label>
+
+        <button class="btn" id="reloadBtn" type="button">Refrescar ahora</button>
+    </form>
+
+    <div class="kpi-grid">
+        <article class="kpi">
+            <h3>Total Casos</h3>
+            <strong id="kpiTotal">0</strong>
+        </article>
+        <article class="kpi">
+            <h3>Municipios</h3>
+            <strong id="kpiMunicipios">0</strong>
+        </article>
+        <article class="kpi">
+            <h3>Edad Promedio</h3>
+            <strong id="kpiEdad">0</strong>
+        </article>
+        <article class="kpi">
+            <h3>Última Semana</h3>
+            <strong id="kpiSemana">N/A</strong>
+        </article>
+    </div>
+</section>
+
+<section class="grid-2">
+    <article class="card">
+        <h3>Casos por Municipio</h3>
+        <canvas id="chartMunicipio"></canvas>
+    </article>
+
+    <article class="card">
+        <h3>Distribución por Sexo</h3>
+        <canvas id="chartSexo"></canvas>
+    </article>
+
+    <article class="card">
+        <h3>Distribución por Edad</h3>
+        <canvas id="chartEdad"></canvas>
+    </article>
+
+    <article class="card">
+        <h3>Tendencia Semanal</h3>
+        <canvas id="chartSemana"></canvas>
+    </article>
+</section>
+
+<section class="card">
+    <h3>Muestra de registros</h3>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Municipio</th>
+                    <th>Edad</th>
+                    <th>Sexo</th>
+                    <th>Semana</th>
+                    <th>Fecha notificación</th>
+                </tr>
+            </thead>
+            <tbody id="tableRows"></tbody>
+        </table>
+    </div>
+</section>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+window.EPIPROC_DASHBOARD_CONFIG = {
+    endpoint: "{{ url_for('api_dashboard_data') }}",
+    selectedEvent: {{ selected_event|int }},
+    assignedEvent: {{ assigned_event|tojson }},
+    refreshMs: 5000
+};
+</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

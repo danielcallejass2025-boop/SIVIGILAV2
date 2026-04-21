@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card secretary-hero">
+    <div>
+        <p class="hero-kicker">Secretaría de Salud</p>
+        <h2>Centro de Control EPIPROC</h2>
+        <p class="muted">Administra personal epidemiológico, boletines, trazabilidad y visualización del evento en tiempo real.</p>
+    </div>
+    <div class="actions">
+        <a class="btn btn-primary" href="{{ url_for('admin_dashboard') }}">Abrir dashboard</a>
+        <a class="btn" href="{{ url_for('admin_audit') }}">Ver auditoría</a>
+    </div>
+</section>
+
+<section class="card">
+    <div class="kpi-grid">
+        <article class="kpi">
+            <h3>Epidemiólogos</h3>
+            <strong>{{ total_epi }}</strong>
+            <p class="muted">Usuarios operativos registrados</p>
+        </article>
+        <article class="kpi">
+            <h3>Boletines</h3>
+            <strong>{{ total_boletines }}</strong>
+            <p class="muted">Total de boletines en el sistema</p>
+        </article>
+        <article class="kpi">
+            <h3>Publicados</h3>
+            <strong>{{ publicados }}</strong>
+            <p class="muted">Contenido disponible para consulta</p>
+        </article>
+    </div>
+</section>
+
+<section class="card">
+    <div class="actions">
+        <a class="btn btn-primary" href="{{ url_for('admin_epi_list') }}">Administrar epidemiólogos</a>
+        <a class="btn" href="{{ url_for('admin_bulletins') }}">Administrar boletines</a>
+        <a class="btn" href="{{ url_for('admin_bulletin_new') }}">Redactar boletín</a>
+        <a class="btn" href="{{ url_for('admin_audit') }}">Seguimiento de auditoría</a>
+    </div>
+</section>
+{% endblock %}

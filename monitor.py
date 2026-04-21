@@ -236,7 +236,11 @@ class MonitorGoogleDrive:
             
             # Procesar con el sistema completo
             try:
-                self.sistema.procesar_archivo(str(ruta_local), generar_boletin=True)
+                self.sistema.procesar_archivo(
+                    str(ruta_local),
+                    generar_boletin=True,
+                    exportar_mme_final=True
+                )
                 self.logger.info(f"✅ Archivo procesado exitosamente: {nombre}")
                 
                 # Marcar como procesado

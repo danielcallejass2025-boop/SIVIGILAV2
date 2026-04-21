@@ -1,6 +1,44 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
+Servidor principal integrado del sistema SIVIGILA/EPIPROC.
+
+Mantiene el puerto historico 8000 y centraliza:
+- Dashboard/portal EPIPROC (Flask)
+- Endpoint legado /api/datos-evento-549
+- Archivos legado evento_549_dashboard.*
+"""
+
+from datetime import datetime
+
+from epiproc_web import create_app
+
+
+PORT = 8000
+
+
+def main() -> None:
+    app = create_app()
+
+    print("\n" + "=" * 70)
+    print("SERVIDOR PRINCIPAL SIVIGILA/EPIPROC")
+    print("=" * 70)
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Escuchando en http://localhost:{PORT}")
+    print("Rutas clave:")
+    print("  - /                      (portal EPIPROC)")
+    print("  - /evento_549_dashboard.html (dashboard legado)")
+    print("  - /api/datos-evento-549 (API legado)")
+    print("  - /api/dashboard-data   (API nueva)")
+    print("=" * 70 + "\n")
+
+    app.run(host="0.0.0.0", port=PORT, debug=False)
+
+
+if __name__ == "__main__":
+    main()
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
 Servidor HTTP Local para Dashboard Evento 549
 Morbilidad Materna Extrema - SIVIGILA Risaralda
 """
@@ -597,6 +635,7 @@ class ColoredHandler(http.server.SimpleHTTPRequestHandler):
             
             # Tomar el más reciente
             archivo = max(archivos, key=lambda x: x.stat().st_mtime)
+            archivo_stat = archivo.stat()
             
             # Leer datos (con cache en memoria para mejorar rendimiento)
             df = self._load_dataframe_cached(archivo)
@@ -620,11 +659,17 @@ class ColoredHandler(http.server.SimpleHTTPRequestHandler):
                 df = df[mask].copy()
             
             # Procesar datos
+            data_version = (
+                f"{archivo.name}:{archivo_stat.st_mtime_ns}:{archivo_stat.st_size}:"
+                f"{total_sin_filtro}:{len(df)}:{municipio_filtro or 'ALL'}"
+            )
+
             datos = {
                 'evento': 549,
                 'archivo_depurado': archivo.name,
                 'archivo_depurado_ruta': str(archivo),
                 'archivo_modificado': datetime.fromtimestamp(archivo.stat().st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                'data_version': data_version,
                 'total_casos': len(df),
                 'total_sin_filtro': total_sin_filtro,
                 'municipio_filtro': municipio_filtro,

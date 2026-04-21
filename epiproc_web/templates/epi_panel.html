@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card">
+    <h2>Panel Epidemiólogo</h2>
+    {% if assigned_event %}
+        <p>Evento asignado: <strong>{{ assigned_event.code }} - {{ assigned_event.name }}</strong></p>
+    {% else %}
+        <p class="muted">No tienes evento asignado por ahora.</p>
+    {% endif %}
+
+    <div class="actions">
+        <a class="btn btn-primary" href="{{ url_for('epi_dashboard') }}">Ver dashboard de mi evento</a>
+        <a class="btn" href="{{ url_for('epi_bulletins') }}">Gestionar mis boletines</a>
+    </div>
+</section>
+{% endblock %}

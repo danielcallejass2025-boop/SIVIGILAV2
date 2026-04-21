@@ -1,0 +1,111 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card form-card login-shell" id="loginShell">
+    <div class="login-hero">
+        <img src="{{ logo_url }}" alt="Logo EPIPROC" class="login-logo">
+        <div class="login-hero-copy">
+            <h2>Acceso al sistema EPIPROC</h2>
+            <p>Selecciona el tipo de ingreso y autentícate para continuar.</p>
+        </div>
+    </div>
+
+    <div class="login-role-picker">
+        <button
+            type="button"
+            class="login-role-btn{% if selected_profile != 'ADMINISTRADOR' %} active{% endif %}"
+            data-profile="EPIDEMIOLOGO"
+        >
+            Epidemiologo
+        </button>
+        <button
+            type="button"
+            class="login-role-btn{% if selected_profile == 'ADMINISTRADOR' %} active{% endif %}"
+            data-profile="ADMINISTRADOR"
+        >
+            Administradores
+        </button>
+    </div>
+
+    <div class="login-panels">
+        <article
+            class="login-panel{% if selected_profile != 'ADMINISTRADOR' %} active{% endif %}"
+            data-profile-panel="EPIDEMIOLOGO"
+        >
+            <h3>Ingreso Epidemiologia</h3>
+            <p class="muted">Acceso operativo para análisis, seguimiento y generación de contenidos técnicos.</p>
+
+            <form method="post" class="form-grid" novalidate>
+                <input type="hidden" name="access_profile" value="EPIDEMIOLOGO" class="profile-input">
+
+                <label>Usuario
+                    <input type="text" name="username" required minlength="3" maxlength="80" autocomplete="username">
+                </label>
+
+                <label>Contraseña
+                    <input type="password" name="password" required minlength="8" autocomplete="current-password">
+                </label>
+
+                <button type="submit" class="btn btn-primary btn-block">Iniciar sesion</button>
+            </form>
+        </article>
+
+        <article
+            class="login-panel{% if selected_profile == 'ADMINISTRADOR' %} active{% endif %}"
+            data-profile-panel="ADMINISTRADOR"
+        >
+            <h3>Ingreso Administradores</h3>
+            <p class="muted">Acceso de gestión para administración de usuarios, boletines y auditoría.</p>
+
+            <form method="post" class="form-grid" novalidate>
+                <input type="hidden" name="access_profile" value="ADMINISTRADOR" class="profile-input">
+
+                <label>Usuario
+                    <input type="text" name="username" required minlength="3" maxlength="80" autocomplete="username">
+                </label>
+
+                <label>Contraseña
+                    <input type="password" name="password" required minlength="8" autocomplete="current-password">
+                </label>
+
+                <button type="submit" class="btn btn-primary btn-block">Iniciar sesion</button>
+            </form>
+        </article>
+    </div>
+</section>
+
+<script>
+(function () {
+    const shell = document.getElementById('loginShell');
+    if (!shell) {
+        return;
+    }
+
+    const buttons = shell.querySelectorAll('.login-role-btn');
+    const panels = shell.querySelectorAll('.login-panel');
+
+    const activateProfile = function (profile) {
+        buttons.forEach(function (btn) {
+            const isActive = btn.dataset.profile === profile;
+            btn.classList.toggle('active', isActive);
+        });
+
+        panels.forEach(function (panel) {
+            const isActive = panel.dataset.profilePanel === profile;
+            panel.classList.toggle('active', isActive);
+        });
+
+        const activePanel = shell.querySelector('.login-panel.active input[name="username"]');
+        if (activePanel) {
+            activePanel.focus();
+        }
+    };
+
+    buttons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            activateProfile(btn.dataset.profile);
+        });
+    });
+})();
+</script>
+{% endblock %}

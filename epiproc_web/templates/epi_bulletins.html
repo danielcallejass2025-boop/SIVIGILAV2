@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card row between center">
+    <div>
+        <h2>Mis Boletines</h2>
+        {% if assigned_event %}
+            <p class="muted">Evento asignado: {{ assigned_event.code }} - {{ assigned_event.name }}</p>
+        {% endif %}
+    </div>
+    <a class="btn btn-primary" href="{{ url_for('epi_bulletin_new') }}">Nuevo boletín</a>
+</section>
+
+<section class="card">
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Título</th>
+                    <th>Evento</th>
+                    <th>Estado</th>
+                    <th>Actualizado</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in bulletins %}
+                    <tr>
+                        <td>{{ b.title }}</td>
+                        <td>{{ b.event_code }}</td>
+                        <td><span class="tag">{{ b.status }}</span></td>
+                        <td>{{ b.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                        <td>
+                            <a class="btn btn-small" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}">Editar</a>
+                            <a class="btn btn-small" href="{{ url_for('download_bulletin', bulletin_id=b.id) }}">Descargar</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

@@ -37,9 +37,6 @@ const EVENTOS_DISPONIBLES = [
     { codigo: 813, nombre: "Tuberculosis" }
 ];
 
-const APPS_SCRIPT_DEPLOY_URL = 'https://script.google.com/macros/s/AKfycbx6lFYxQtS0sUOIw3713SH5NSwatq-4vYf_eHiedqk3cJgQN_vgzd7rFa1Om-VqLGpd/exec';
-const APPS_SCRIPT_TIMEOUT_MS = 12000;
-
 // Variables globales
 let eventoActual = 549;
 let datosActuales = {};
@@ -48,12 +45,60 @@ let municipiosDisponibles = []; // Lista de municipios del archivo depurado
 let totalSinFiltroActual = 0;   // Total real sin filtro reportado por API
 let controladorFiltroMunicipio = null;
 let secuenciaSolicitudFiltro = 0;
+let ultimaVersionDatos = null;
+let fallosRefreshConsecutivos = 0;
+let timerEdadDatos = null;
+let ultimoTimestampDatosMs = null;
+const GRAFICOS_PIE_IDS = ['grafico-afiliacion', 'grafico-momento', 'grafico-oportunidad'];
 
 // Respaldo del HTML original para restaurar al volver al evento 549
 let _htmlOriginalBoletin = null;
 let _htmlOriginalDashboardParent = null;
 
 // Nota: el dashboard consume exclusivamente datos reales del archivo depurado vía API.
+
+function parsearTimestampLocal(timestamp) {
+    if (!timestamp || typeof timestamp !== 'string') return null;
+
+    const isoLike = timestamp.trim().replace(' ', 'T');
+    const intentoDirecto = new Date(isoLike);
+    if (!Number.isNaN(intentoDirecto.getTime())) {
+        return intentoDirecto.getTime();
+    }
+
+    const match = timestamp.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+    if (!match) return null;
+
+    const [_, y, m, d, hh, mm, ss] = match;
+    const fecha = new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(mm), Number(ss));
+    return Number.isNaN(fecha.getTime()) ? null : fecha.getTime();
+}
+
+function formatearEdadDatos(ms) {
+    const totalSeg = Math.max(0, Math.floor(ms / 1000));
+    if (totalSeg < 60) return `${totalSeg} s`;
+
+    const min = Math.floor(totalSeg / 60);
+    const seg = totalSeg % 60;
+    if (min < 60) return `${min} min ${seg} s`;
+
+    const horas = Math.floor(min / 60);
+    const minRest = min % 60;
+    return `${horas} h ${minRest} min`;
+}
+
+function actualizarEdadDatosVisual() {
+    const edadEl = document.getElementById('status-age');
+    if (!edadEl) return;
+
+    if (!ultimoTimestampDatosMs) {
+        edadEl.textContent = '';
+        return;
+    }
+
+    const diff = Date.now() - ultimoTimestampDatosMs;
+    edadEl.textContent = `Edad de datos: ${formatearEdadDatos(diff)}`;
+}
 
 /**
  * Carga datos depurados del backend.
@@ -154,6 +199,37 @@ function construirDatosDesdePayload(payload) {
         return payload.dashboard_data;
     }
     throw new Error('Payload sin dashboard_data real del archivo depurado');
+}
+
+function actualizarTodoDashboardConDatos(payload) {
+    datosActuales = construirDatosDesdePayload(payload);
+    totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
+    ultimaVersionDatos = String(payload.data_version || '');
+
+    if (payload.municipios_disponibles) {
+        municipiosDisponibles = payload.municipios_disponibles;
+        llenarFiltroMunicipios(municipiosDisponibles);
+    }
+
+    actualizarKPIsVisibles();
+    actualizarBoletinDinamico();
+    llenarTablaSociodemografica();
+    llenarTablaTerritorial();
+    llenarTablaCalidad();
+    llenarTablaClinica();
+    graficoSemanas();
+    graficoComparativo();
+    graficoEdad();
+    graficoEdadSocio();
+    graficoAfiliacion();
+    graficoCausas();
+    graficoMomento();
+    graficoMapa();
+    graficoOportunidad();
+    graficoDiasNotificacion();
+    actualizarComparacionInteranualSemanal();
+
+    setTimeout(resizeTodosGraficos, 200);
 }
 
 /**
@@ -260,18 +336,26 @@ function actualizarBarraEstado(archivo, timestamp, exito, mensajePersonalizado =
             ? `Conectado — Municipio: ${municipioFiltroActual}`
             : 'Conectado — Total departamental');
         text.textContent = mensaje;
-        arch.textContent = archivo || '';
-        ts.textContent = timestamp ? `Actualizado: ${timestamp}` : '';
+        if (archivo !== null && archivo !== undefined) {
+            arch.textContent = archivo || '';
+        }
+        if (timestamp !== null && timestamp !== undefined) {
+            ts.textContent = timestamp ? `Actualizado: ${timestamp}` : '';
+            ultimoTimestampDatosMs = parsearTimestampLocal(timestamp);
+            actualizarEdadDatosVisual();
+        }
     } else {
         dot.className = 'status-dot offline';
         text.textContent = mensajePersonalizado || 'Desconectado — Usando datos de respaldo';
         arch.textContent = '';
         ts.textContent = '';
+        ultimoTimestampDatosMs = null;
+        actualizarEdadDatosVisual();
     }
 }
 
 // ====================================
-// COMPARACION INTERANUAL (APPS SCRIPT)
+// COMPARACION INTERANUAL (LOCAL)
 // ====================================
 
 function obtenerSemanaEpidemiologicaActual(fecha = new Date()) {
@@ -317,7 +401,7 @@ function renderComparacionInteranualError(semana, anioActual) {
     };
 
     setText('kpi-variacion-anual', 'N/D');
-    setText('kpi-variacion-subtexto', `Sin conexión Apps Script (SE ${semana} ${anioAnterior})`);
+    setText('kpi-variacion-subtexto', `Sin base comparativa local para SE ${semana} ${anioAnterior}`);
     actualizarClaseVariacionComparacion('kpi-variacion-semanal-error');
 }
 
@@ -365,46 +449,92 @@ function renderComparacionInteranual(resultado, semanaSolicitada, anioSolicitado
     actualizarClaseVariacionComparacion('kpi-variacion-semanal-disminucion');
 }
 
-async function consultarComparacionInteranualSemana(semana, anioActual) {
-    const baseUrl = APPS_SCRIPT_DEPLOY_URL;
-    const params = new URLSearchParams({
-        accion: 'comparar',
-        semana: String(semana),
-        anio: String(anioActual)
-    });
-    const url = `${baseUrl}?${params.toString()}`;
+async function actualizarComparacionInteranualSemanal() {
+    const semanaActualCalendario = obtenerSemanaEpidemiologicaActual();
+    const anioActual = obtenerAnioEpidemiologicoActual();
+    const semanas = Array.isArray(datosActuales?.semanas) ? datosActuales.semanas : [];
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), APPS_SCRIPT_TIMEOUT_MS);
-    try {
-        const response = await fetch(url, {
-            method: 'GET',
-            cache: 'no-store',
-            signal: controller.signal
-        });
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-        const payload = await response.json();
-        if (payload && String(payload.status || '').toLowerCase() === 'error') {
-            throw new Error(payload.mensaje || 'Apps Script respondió con error');
-        }
-        return payload;
-    } finally {
-        clearTimeout(timeoutId);
+    if (semanas.length === 0) {
+        renderComparacionInteranualError(semanaActualCalendario, anioActual);
+        return;
     }
+
+    const semanasValidas = semanas
+        .map(s => Number(s?.semana))
+        .filter(n => Number.isFinite(n) && n > 0 && n <= 53)
+        .sort((a, b) => a - b);
+
+    if (semanasValidas.length === 0) {
+        renderComparacionInteranualError(semanaActualCalendario, anioActual);
+        return;
+    }
+
+    const semanaObjetivo = semanasValidas.includes(semanaActualCalendario)
+        ? semanaActualCalendario
+        : semanasValidas[semanasValidas.length - 1];
+
+    const agregados = semanas.reduce((acc, item) => {
+        const semana = Number(item?.semana);
+        if (semana !== semanaObjetivo) {
+            return acc;
+        }
+
+        const actual = Number(item?.casos) || 0;
+        const previo = Number(item?.['año2025'] ?? item?.anio2025 ?? item?.anio_2025 ?? 0) || 0;
+
+        acc.casosActual += actual;
+        acc.casosAnterior += previo;
+        return acc;
+    }, { casosActual: 0, casosAnterior: 0 });
+
+    const variacion = agregados.casosAnterior > 0
+        ? ((agregados.casosActual - agregados.casosAnterior) / agregados.casosAnterior) * 100
+        : 0;
+
+    const resultadoLocal = {
+        semana: semanaObjetivo,
+        anio_actual: anioActual,
+        anio_anterior: anioActual - 1,
+        casos_actual: agregados.casosActual,
+        casos_anterior: agregados.casosAnterior,
+        variacion_porcentual: variacion,
+        tendencia: variacion > 0 ? 'aumento' : (variacion < 0 ? 'disminucion' : 'sin_cambio'),
+        icono: variacion > 0 ? '⬆' : (variacion < 0 ? '⬇' : '➡️'),
+        mensaje: `SE ${String(semanaObjetivo).padStart(2, '0')}: ${agregados.casosActual} vs ${agregados.casosAnterior} casos`
+    };
+
+    renderComparacionInteranual(resultadoLocal, semanaObjetivo, anioActual);
 }
 
-async function actualizarComparacionInteranualSemanal() {
-    const semanaActual = obtenerSemanaEpidemiologicaActual();
-    const anioActual = obtenerAnioEpidemiologicoActual();
-
+async function sincronizarDashboardTiempoReal() {
     try {
-        const resultado = await consultarComparacionInteranualSemana(semanaActual, anioActual);
-        renderComparacionInteranual(resultado, semanaActual, anioActual);
-    } catch (error) {
-        console.warn('⚠️ No fue posible consultar comparación interanual:', error);
-        renderComparacionInteranualError(semanaActual, anioActual);
+        const payload = await obtenerDatosDepurados549ConRetry(municipioFiltroActual, null, 1);
+        const nuevaVersion = String(payload.data_version || '');
+        totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
+
+        actualizarBarraEstado(payload.archivo_depurado, payload.archivo_modificado, true);
+
+        if (payload.municipios_disponibles && JSON.stringify(payload.municipios_disponibles) !== JSON.stringify(municipiosDisponibles)) {
+            municipiosDisponibles = payload.municipios_disponibles;
+            llenarFiltroMunicipios(municipiosDisponibles);
+        }
+
+        if (nuevaVersion && nuevaVersion !== ultimaVersionDatos) {
+            console.log(`🔄 Datos actualizados en tiempo real: ${payload.archivo_depurado}`);
+            actualizarTodoDashboardConDatos(payload);
+        }
+
+        fallosRefreshConsecutivos = 0;
+    } catch (err) {
+        fallosRefreshConsecutivos += 1;
+        if (fallosRefreshConsecutivos >= 2) {
+            actualizarBarraEstado(
+                null,
+                null,
+                false,
+                'Sincronización temporalmente interrumpida (mostrando última lectura)'
+            );
+        }
     }
 }
 
@@ -443,12 +573,24 @@ function llenarFiltroMunicipios(listaMunicipios) {
     }
 }
 
+function actualizarBadgeMunicipio(texto = '') {
+    const badge = document.getElementById('filtro-municipio-badge');
+    if (!badge) return;
+
+    if (texto) {
+        badge.textContent = texto;
+        badge.classList.remove('filtro-badge-oculto');
+    } else {
+        badge.textContent = '';
+        badge.classList.add('filtro-badge-oculto');
+    }
+}
+
 /**
  * Aplicar filtro de municipio: re-consulta la API filtrando por municipio
  */
 async function aplicarFiltroMunicipio(municipio) {
     const select = document.getElementById('filtro-municipio-select');
-    const badge = document.getElementById('filtro-municipio-badge');
     const estadoTexto = document.getElementById('status-text');
     const filtroAnterior = municipioFiltroActual;
     const miSecuencia = ++secuenciaSolicitudFiltro;
@@ -480,8 +622,7 @@ async function aplicarFiltroMunicipio(municipio) {
             return;
         }
 
-        datosActuales = construirDatosDesdePayload(payload);
-        totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
+        actualizarTodoDashboardConDatos(payload);
 
         // Mantener lista de municipios actualizada desde el archivo depurado
         if (payload.municipios_disponibles) {
@@ -493,41 +634,14 @@ async function aplicarFiltroMunicipio(municipio) {
             select.value = municipioFiltroActual;
         }
 
-        const archivoInfo = municipioFiltroActual
-            ? `${payload.archivo_depurado} (${municipioFiltroActual}: ${payload.total_casos} de ${payload.total_sin_filtro})`
-            : payload.archivo_depurado;
-        actualizarBarraEstado(archivoInfo, payload.archivo_modificado, true);
+        actualizarBarraEstado(payload.archivo_depurado, payload.archivo_modificado, true);
 
         // Actualizar badge visual con conteo real
-        if (badge) {
-            if (municipioFiltroActual) {
-                badge.textContent = `${municipioFiltroActual} · ${payload.total_casos} casos`;
-                badge.style.display = 'inline-flex';
-            } else {
-                badge.style.display = 'none';
-            }
+        if (municipioFiltroActual) {
+            actualizarBadgeMunicipio(`${municipioFiltroActual} · ${payload.total_casos} casos`);
+        } else {
+            actualizarBadgeMunicipio('');
         }
-
-        // Actualizar todo el dashboard con datos filtrados
-        actualizarKPIsVisibles();
-        actualizarBoletinDinamico();
-        llenarTablaSociodemografica();
-        llenarTablaTerritorial();
-        llenarTablaCalidad();
-        llenarTablaClinica();
-        graficoSemanas();
-        graficoComparativo();
-        graficoEdad();
-        graficoEdadSocio();
-        graficoAfiliacion();
-        graficoCausas();
-        graficoMomento();
-        graficoMapa();
-        graficoOportunidad();
-        graficoDiasNotificacion();
-        actualizarComparacionInteranualSemanal();
-
-        setTimeout(resizeTodosGraficos, 200);
 
         console.log(`✅ Dashboard actualizado — ${municipioFiltroActual || 'Todos los municipios'}: ${payload.total_casos} casos`);
     } catch (error) {
@@ -545,14 +659,11 @@ async function aplicarFiltroMunicipio(municipio) {
         if (select) {
             select.value = municipioFiltroActual;
         }
-        if (badge) {
-            if (municipioFiltroActual) {
-                const casosActuales = Number(datosActuales?.totalCasos || 0);
-                badge.textContent = `${municipioFiltroActual} · ${casosActuales} casos (última lectura)`;
-                badge.style.display = 'inline-flex';
-            } else {
-                badge.style.display = 'none';
-            }
+        if (municipioFiltroActual) {
+            const casosActuales = Number(datosActuales?.totalCasos || 0);
+            actualizarBadgeMunicipio(`${municipioFiltroActual} · ${casosActuales} casos (última lectura)`);
+        } else {
+            actualizarBadgeMunicipio('');
         }
         if (estadoTexto) {
             estadoTexto.textContent = municipioFiltroActual
@@ -632,18 +743,9 @@ async function cambiarEvento(codigoEvento) {
         console.log('✅ Cargando datos depurados del evento 549...');
         try {
             const payload = await obtenerDatosDepurados549ConRetry(municipioFiltroActual, null, 1);
-            datosActuales = construirDatosDesdePayload(payload);
-            totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
+            actualizarTodoDashboardConDatos(payload);
             console.log(`📦 Fuente depurada: ${payload.archivo_depurado} | casos: ${payload.total_casos}`);
             actualizarBarraEstado(payload.archivo_depurado, payload.archivo_modificado, true);
-            window._ultimoArchivo = payload.archivo_depurado;
-            window._ultimoTotal = payload.total_casos;
-
-            // Actualizar lista de municipios
-            if (payload.municipios_disponibles) {
-                municipiosDisponibles = payload.municipios_disponibles;
-                llenarFiltroMunicipios(municipiosDisponibles);
-            }
         } catch (error) {
             console.warn('⚠️ No fue posible cargar API depurada.', error);
             datosActuales = crearDatosVaciosDesdeDepurado();
@@ -651,9 +753,7 @@ async function cambiarEvento(codigoEvento) {
             actualizarBarraEstado(null, null, false);
         }
 
-        actualizarKPIsVisibles();
         mostrarDashboardConDatos();
-        actualizarComparacionInteranualSemanal();
     } else {
         // Para otros eventos, mostrar mensaje sin datos
         console.log(`⚠️ Evento ${eventoActual} sin datos disponibles`);
@@ -722,15 +822,15 @@ function mostrarSinDatos() {
     const eventoInfo = EVENTOS_DISPONIBLES.find(e => e.codigo === eventoActual);
     
     const sinDatosHTML = `
-        <div style="padding: 60px 40px; text-align: center; background: linear-gradient(135deg, #F8F9FA 0%, #E8EAED 100%); border-radius: 12px; margin: 30px 0;">
-            <div style="font-size: 4em; margin-bottom: 20px; opacity: 0.6;">📭</div>
-            <h3 style="color: var(--gris-oscuro); font-size: 1.5em; margin: 0 0 10px 0;">Sin datos disponibles</h3>
-            <p style="color: var(--gris-oscuro); font-size: 1em; margin: 0 0 20px 0; line-height: 1.6;">
+        <div class="sin-datos-dinamico">
+            <div class="sin-datos-dinamico-icon">📭</div>
+            <h3 class="sin-datos-dinamico-title">Sin datos disponibles</h3>
+            <p class="sin-datos-dinamico-text">
                 El evento <strong>#${eventoActual}</strong> aún no tiene datos procesados en el sistema.
             </p>
-            <p style="color: #666; font-size: 0.95em; margin: 0;">
+            <p class="sin-datos-dinamico-note">
                 Los datos se actualizarán automáticamente cada semana. Selecciona el evento 
-                <strong style="color: var(--color-primary);">#549 - Morbilidad Materna Extrema</strong> para ver los análisis disponibles.
+                <strong class="sin-datos-dinamico-highlight">#549 - Morbilidad Materna Extrema</strong> para ver los análisis disponibles.
             </p>
         </div>
     `;
@@ -789,9 +889,130 @@ function resizeTodosGraficos() {
      'grafico-oportunidad', 'grafico-dias-notificacion', 'boletin-grafico-semanas'].forEach(id => {
         const el = document.getElementById(id);
         if (el && el.data) {
-            Plotly.Plots.resize(id);
+            Plotly.Plots.resize(el);
+            if (GRAFICOS_PIE_IDS.includes(id)) {
+                ajustarLayoutPieResponsivo(id);
+            }
         }
     });
+}
+
+function obtenerConfigPlotly() {
+    return {
+        responsive: true,
+        displayModeBar: false,
+        displaylogo: false
+    };
+}
+
+function obtenerAnchoUtilGrafico(graficoId) {
+    const grafico = document.getElementById(graficoId);
+    if (!grafico) return window.innerWidth || 1024;
+
+    const contenedor = grafico.closest('.grafico-box') || grafico.parentElement || grafico;
+    const anchoGrafico = Number(grafico.clientWidth) || 0;
+    const anchoContenedor = Number(contenedor && contenedor.clientWidth) || 0;
+    const anchoVentana = window.innerWidth || 1024;
+
+    return Math.max(anchoGrafico, anchoContenedor, Math.min(640, anchoVentana));
+}
+
+function aplicarEstiloBaseLayout(layout, graficoId, opciones = {}) {
+    const ancho = obtenerAnchoUtilGrafico(graficoId);
+    const compacto = ancho < 560;
+    const intermedio = ancho < 820;
+
+    const layoutFinal = Object.assign({
+        template: 'plotly_white',
+        paper_bgcolor: '#FFFFFF',
+        plot_bgcolor: '#FFFFFF',
+        font: { family: 'Inter, Arial', size: compacto ? 11 : 12, color: '#2C3E50' },
+        hoverlabel: { font: { family: 'Inter, Arial', size: compacto ? 11 : 12 } },
+        uniformtext: { mode: 'hide', minsize: compacto ? 9 : 10 }
+    }, layout || {});
+
+    const margenBase = opciones.pie
+        ? { l: 20, r: 140, t: 24, b: 24 }
+        : (opciones.barHorizontal
+            ? { l: 110, r: 32, t: 24, b: 42 }
+            : { l: 52, r: 24, t: 28, b: 56 });
+
+    layoutFinal.margin = Object.assign(margenBase, (layout && layout.margin) ? layout.margin : {});
+
+    if (layoutFinal.xaxis) {
+        layoutFinal.xaxis = Object.assign({
+            automargin: true,
+            tickfont: { size: compacto ? 10 : 11 },
+            titlefont: { size: compacto ? 11 : 12 }
+        }, layoutFinal.xaxis);
+    }
+
+    if (layoutFinal.yaxis) {
+        layoutFinal.yaxis = Object.assign({
+            automargin: true,
+            tickfont: { size: compacto ? 10 : 11 },
+            titlefont: { size: compacto ? 11 : 12 }
+        }, layoutFinal.yaxis);
+    }
+
+    if (layoutFinal.yaxis2) {
+        layoutFinal.yaxis2 = Object.assign({
+            automargin: true,
+            tickfont: { size: compacto ? 10 : 11 },
+            titlefont: { size: compacto ? 11 : 12 }
+        }, layoutFinal.yaxis2);
+    }
+
+    if (layoutFinal.legend) {
+        layoutFinal.legend = Object.assign({
+            font: { size: compacto ? 10 : 11, family: 'Inter, Arial' }
+        }, layoutFinal.legend);
+    }
+
+    if (opciones.pie && intermedio) {
+        layoutFinal.legend = Object.assign({}, layoutFinal.legend || {}, {
+            orientation: 'h',
+            x: 0.5,
+            xanchor: 'center',
+            y: -0.1,
+            yanchor: 'top'
+        });
+        layoutFinal.margin = Object.assign({}, layoutFinal.margin, { l: 20, r: 20, t: 24, b: 80 });
+    }
+
+    return layoutFinal;
+}
+
+function ajustarLayoutPieResponsivo(graficoId) {
+    const el = document.getElementById(graficoId);
+    if (!el || !el.data) return;
+
+    const ancho = obtenerAnchoUtilGrafico(graficoId);
+    const intermedio = ancho < 820;
+
+    const relayoutData = intermedio
+        ? {
+            legend: {
+                orientation: 'h',
+                x: 0.5,
+                xanchor: 'center',
+                y: -0.1,
+                yanchor: 'top'
+            },
+            margin: { l: 20, r: 20, t: 24, b: 80 }
+        }
+        : {
+            legend: {
+                orientation: 'v',
+                x: 1.02,
+                xanchor: 'left',
+                y: 0.5,
+                yanchor: 'middle'
+            },
+            margin: { l: 20, r: 140, t: 24, b: 24 }
+        };
+
+    Plotly.relayout(el, relayoutData);
 }
 
 /**
@@ -894,13 +1115,14 @@ function graficoSemanas() {
         margin: { t: 40, b: 60, l: 50, r: 50 }
     };
 
-    const config = { responsive: true, displayModeBar: false };
+    const config = obtenerConfigPlotly();
 
     if (document.getElementById('grafico-semanas')) {
-        Plotly.newPlot('grafico-semanas', [traceBars, traceLine], layout, config);
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-semanas');
+        Plotly.newPlot('grafico-semanas', [traceBars, traceLine], layoutAjustado, config);
     }
     if (document.getElementById('boletin-grafico-semanas')) {
-        const layoutBoletin = Object.assign({}, layout, { height: 300 });
+        const layoutBoletin = aplicarEstiloBaseLayout(Object.assign({}, layout, { height: 300 }), 'boletin-grafico-semanas');
         Plotly.newPlot('boletin-grafico-semanas', [traceBars, traceLine], layoutBoletin, config);
     }
 }
@@ -926,7 +1148,8 @@ function graficoComparativo() {
             type: 'bar',
             marker: { color: ['#95A5A6', '#1F6B45'] },
             text: [casosBase + ' casos', casosActuales + ' casos'],
-            textposition: 'outside'
+            textposition: 'outside',
+            cliponaxis: false
         }
     ];
 
@@ -935,11 +1158,13 @@ function graficoComparativo() {
         yaxis: { title: 'Número de Casos' },
         hovermode: 'x unified',
         template: 'plotly_white',
-        showlegend: false
+        showlegend: false,
+        margin: { t: 20, b: 60, l: 52, r: 20 }
     };
 
     if (document.getElementById('grafico-comparativo')) {
-        Plotly.newPlot('grafico-comparativo', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-comparativo');
+        Plotly.newPlot('grafico-comparativo', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -955,7 +1180,8 @@ function graficoEdad() {
         orientation: 'h',
         marker: { color: colores },
         text: casos.map((c, i) => `${c} (${datosActuales.gruposEdad[i].porcentaje}%)`),
-        textposition: 'outside'
+        textposition: 'outside',
+        cliponaxis: false
     }];
 
     const layout = {
@@ -964,11 +1190,13 @@ function graficoEdad() {
         yaxis: { title: 'Grupo de Edad' },
         hovermode: 'y unified',
         template: 'plotly_white',
-        showlegend: false
+        showlegend: false,
+        margin: { l: 120, r: 24, t: 20, b: 42 }
     };
 
     if (document.getElementById('grafico-edad')) {
-        Plotly.newPlot('grafico-edad', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-edad', { barHorizontal: true });
+        Plotly.newPlot('grafico-edad', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1004,7 +1232,8 @@ function graficoAfiliacion() {
     };
 
     if (document.getElementById('grafico-afiliacion')) {
-        Plotly.newPlot('grafico-afiliacion', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-afiliacion', { pie: true });
+        Plotly.newPlot('grafico-afiliacion', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1019,7 +1248,8 @@ function graficoCausas() {
         orientation: 'h',
         marker: { color: '#1D4E89' },
         text: casos.map((c, i) => `${c} (${datosActuales.causas[i].porcentaje}%)`),
-        textposition: 'outside'
+        textposition: 'outside',
+        cliponaxis: false
     }];
 
     const layout = {
@@ -1028,11 +1258,13 @@ function graficoCausas() {
         yaxis: { title: 'Causa' },
         hovermode: 'y unified',
         template: 'plotly_white',
-        showlegend: false
+        showlegend: false,
+        margin: { l: 130, r: 24, t: 20, b: 42 }
     };
 
     if (document.getElementById('grafico-causas')) {
-        Plotly.newPlot('grafico-causas', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-causas', { barHorizontal: true });
+        Plotly.newPlot('grafico-causas', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1068,7 +1300,8 @@ function graficoMomento() {
     };
 
     if (document.getElementById('grafico-momento')) {
-        Plotly.newPlot('grafico-momento', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-momento', { pie: true });
+        Plotly.newPlot('grafico-momento', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1165,6 +1398,17 @@ function getColorByRazon(razon) {
     return '#D1D5DB';                    // Gris - SIN CASOS
 }
 
+function getBadgeClassByRazon(razon) {
+    if (razon >= 400) return 'map-popup-badge-critico';
+    if (razon >= 300) return 'map-popup-badge-muy-alto';
+    if (razon >= 200) return 'map-popup-badge-alto';
+    if (razon >= 150) return 'map-popup-badge-mod-alto';
+    if (razon >= 100) return 'map-popup-badge-moderado';
+    if (razon >= 50) return 'map-popup-badge-bajo';
+    if (razon > 0) return 'map-popup-badge-muy-bajo';
+    return 'map-popup-badge-sin-casos';
+}
+
 function graficoMapa() {
     // Eliminar mapa anterior si existe
     const mapContainer = document.getElementById('grafico-mapa');
@@ -1186,10 +1430,9 @@ function graficoMapa() {
     // Crear círculos para cada municipio con tamaño proporcional
     const municipiosReales = Array.isArray(datosActuales.municipiosTerritoriales)
         ? datosActuales.municipiosTerritoriales
-        : null;
+        : [];
 
-    const municipios = (municipiosReales && municipiosReales.length > 0)
-        ? municipiosReales.map(m => ({
+    const municipios = municipiosReales.map(m => ({
             properties: {
                 nombre: m.nombre,
                 casos: Number(m.casos) || 0,
@@ -1201,8 +1444,12 @@ function graficoMapa() {
                 type: 'Point',
                 coordinates: [Number(m.longitud) || -75.73, Number(m.latitud) || 4.95]
             }
-        }))
-        : risaraldaGeoJSON.features;
+        }));
+
+    if (municipios.length === 0) {
+        llenarTablaMapaDetallada([]);
+        return;
+    }
     
     municipios.forEach(feature => {
         const props = feature.properties;
@@ -1217,6 +1464,8 @@ function graficoMapa() {
         else radius = 8000;
         
         // Crear círculo
+        const badgeClass = getBadgeClassByRazon(props.razon);
+
         L.circle([coords[1], coords[0]], {
             color: getColorByRazon(props.razon),
             fillColor: getColorByRazon(props.razon),
@@ -1225,24 +1474,24 @@ function graficoMapa() {
             opacity: 0.9,
             radius: radius
         }).bindPopup(`
-            <div style="font-family: Arial; font-size: 12px; width: 200px;">
-                <b style="font-size: 14px; color: #2C3E50;">${props.nombre}</b><br><br>
-                <table style="width: 100%; border-collapse: collapse;">
-                    <tr style="background: #F0F0F0;">
+            <div class="map-popup">
+                <b class="map-popup-title">${props.nombre}</b><br><br>
+                <table class="map-popup-table">
+                    <tr class="map-popup-row-alt">
                         <td><b>Casos:</b></td>
-                        <td style="text-align: right;"><b>${props.casos}</b></td>
+                        <td class="map-popup-value"><b>${props.casos}</b></td>
                     </tr>
                     <tr>
                         <td><b>Nacidos Vivos:</b></td>
-                        <td style="text-align: right;"><b>${props.nv}</b></td>
+                        <td class="map-popup-value"><b>${props.nv}</b></td>
                     </tr>
-                    <tr style="background: #F0F0F0;">
+                    <tr class="map-popup-row-alt">
                         <td><b>Razón MME:</b></td>
-                        <td style="text-align: right;"><b>${props.razon.toFixed(1)}</b></td>
+                        <td class="map-popup-value"><b>${props.razon.toFixed(1)}</b></td>
                     </tr>
                     <tr>
-                        <td colspan="2" style="text-align: center; padding-top: 8px;">
-                            <span style="background: ${getColorByRazon(props.razon)}; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px;">
+                        <td colspan="2" class="map-popup-badge-cell">
+                            <span class="map-popup-badge ${badgeClass}">
                                 ${props.clasificacion}
                             </span>
                         </td>
@@ -1256,15 +1505,7 @@ function graficoMapa() {
         // Añadir etiqueta de municipio
         L.marker([coords[1], coords[0]], {
             icon: L.divIcon({
-                html: `<div style="
-                    font-weight: bold;
-                    font-size: 10px;
-                    color: #2C3E50;
-                    text-align: center;
-                    text-shadow: 1px 1px 2px white, -1px -1px 2px white, 1px -1px 2px white, -1px 1px 2px white;
-                    pointer-events: none;
-                    white-space: nowrap;
-                ">${props.nombre}</div>`,
+                html: `<div class="municipio-label-text">${props.nombre}</div>`,
                 iconSize: [80, 20],
                 className: 'municipio-label'
             })
@@ -1293,18 +1534,27 @@ function llenarTablaMapaDetallada(municipios) {
     if (!tbody) return;
     tbody.innerHTML = '';
 
+    if (!Array.isArray(municipios) || municipios.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="territorial-empty-cell">Sin datos depurados para mapa territorial</td>
+            </tr>
+        `;
+        return;
+    }
+
     // Ordenar por razón MME descendente
     const municipiosOrdenados = [...municipios].sort((a, b) => b.razonMME - a.razonMME);
 
     municipiosOrdenados.forEach((municipio, index) => {
         const row = `
             <tr>
-                <td style="width:5%; text-align:center;"><strong>${index + 1}</strong></td>
-                <td style="width:35%;"><strong>${municipio.nombre}</strong></td>
-                <td style="width:15%; text-align:center;"><strong>${municipio.casos}</strong></td>
-                <td style="width:15%; text-align:center;"><strong>${municipio.nv2025}</strong></td>
-                <td style="width:30%; text-align:center;">
-                    <strong style="font-size:1.1em; color:#2C3E50;">
+                <td class="territorial-cell-rank"><strong>${index + 1}</strong></td>
+                <td class="territorial-cell-name"><strong>${municipio.nombre}</strong></td>
+                <td class="territorial-cell-cases"><strong>${municipio.casos}</strong></td>
+                <td class="territorial-cell-nv"><strong>${municipio.nv2025}</strong></td>
+                <td class="territorial-cell-ratio">
+                    <strong class="territorial-ratio-valor">
                         ${municipio.razonMME.toFixed(1)}
                     </strong>
                 </td>
@@ -1319,8 +1569,8 @@ function graficoOportunidad() {
     const tardios = datosActuales.calidad.notificacionTardia;
     const total = oportunos + tardios;
     
-    const porcentajeOportunos = ((oportunos / total) * 100).toFixed(1);
-    const porcentajeTardios = ((tardios / total) * 100).toFixed(1);
+    const porcentajeOportunos = total > 0 ? Number(((oportunos / total) * 100).toFixed(1)) : 0;
+    const porcentajeTardios = total > 0 ? Number(((tardios / total) * 100).toFixed(1)) : 0;
 
     const data = [{
         labels: [
@@ -1346,11 +1596,13 @@ function graficoOportunidad() {
         },
         template: 'plotly_white',
         showlegend: true,
-        paper_bgcolor: '#FAFAFA'
+        paper_bgcolor: '#FAFAFA',
+        margin: { l: 20, r: 140, t: 54, b: 24 }
     };
 
     if (document.getElementById('grafico-oportunidad')) {
-        Plotly.newPlot('grafico-oportunidad', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-oportunidad', { pie: true });
+        Plotly.newPlot('grafico-oportunidad', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1371,7 +1623,8 @@ function graficoDiasNotificacion() {
         },
         text: casos.map(c => `${c} (${((c / total) * 100).toFixed(1)}%)`),
         textposition: 'outside',
-        textfont: { color: '#2C3E50', size: 11, family: 'Inter, Arial' }
+        textfont: { color: '#2C3E50', size: 11, family: 'Inter, Arial' },
+        cliponaxis: false
     }];
 
     const layout = {
@@ -1381,11 +1634,12 @@ function graficoDiasNotificacion() {
         hovermode: 'x unified',
         template: 'plotly_white',
         showlegend: false,
-        margin: { t: 20, b: 60 }
+        margin: { t: 20, b: 60, l: 52, r: 20 }
     };
 
     if (document.getElementById('grafico-dias-notificacion')) {
-        Plotly.newPlot('grafico-dias-notificacion', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-dias-notificacion');
+        Plotly.newPlot('grafico-dias-notificacion', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1404,7 +1658,8 @@ function graficoEdadSocio() {
         orientation: 'h',
         marker: { color: colores },
         text: casos.map((c, i) => `${c} (${datosActuales.gruposEdad[i].porcentaje}%)`),
-        textposition: 'outside'
+        textposition: 'outside',
+        cliponaxis: false
     }];
 
     const layout = {
@@ -1414,11 +1669,12 @@ function graficoEdadSocio() {
         hovermode: 'y unified',
         template: 'plotly_white',
         showlegend: false,
-        margin: { l: 100, t: 20 }
+        margin: { l: 120, r: 24, t: 20, b: 42 }
     };
 
     if (document.getElementById('grafico-edad-socio')) {
-        Plotly.newPlot('grafico-edad-socio', data, layout, { responsive: true, displayModeBar: false });
+        const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-edad-socio', { barHorizontal: true });
+        Plotly.newPlot('grafico-edad-socio', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1432,19 +1688,20 @@ function llenarTablaSociodemografica() {
     tbody.innerHTML = '';
 
     // Agregar grupos de edad
-    const seccionEdad = '<tr><td colspan="4" style="background:#1D4E89;color:white;font-weight:bold;padding:10px;">DISTRIBUCIÓN POR GRUPO DE EDAD</td></tr>';
+    const seccionEdad = '<tr><td colspan="4" class="tabla-socio-seccion tabla-socio-seccion-edad">DISTRIBUCIÓN POR GRUPO DE EDAD</td></tr>';
     tbody.innerHTML += seccionEdad;
 
     datosActuales.gruposEdad.forEach(edad => {
-        const barra = Math.round((edad.casos / datosActuales.totalCasos) * 100);
+        const porcentaje = Number(edad.porcentaje) || 0;
         const row = `
             <tr>
                 <td><strong>${edad.grupo}</strong></td>
                 <td class="text-center"><strong>${edad.casos}</strong></td>
                 <td class="text-center"><strong>${edad.porcentaje}%</strong></td>
                 <td>
-                    <div style="background:#E8E8E8; height:20px; border-radius:3px; overflow:hidden;">
-                        <div style="background:#1F6B45; height:100%; width:${edad.porcentaje}%; display:flex; align-items:center; justify-content:center; color:white; font-size:10px; font-weight:bold;">${edad.porcentaje}%</div>
+                    <div class="progress-mini-wrap">
+                        <progress class="progress-mini progress-mini-edad" max="100" value="${porcentaje}"></progress>
+                        <span class="progress-mini-label">${edad.porcentaje}%</span>
                     </div>
                 </td>
             </tr>
@@ -1453,19 +1710,20 @@ function llenarTablaSociodemografica() {
     });
 
     // Agregar sección de afiliación
-    const seccionAfiliacion = '<tr><td colspan="4" style="background:#003DA5;color:white;font-weight:bold;padding:10px;">DISTRIBUCIÓN POR TIPO DE AFILIACIÓN</td></tr>';
+    const seccionAfiliacion = '<tr><td colspan="4" class="tabla-socio-seccion tabla-socio-seccion-afiliacion">DISTRIBUCIÓN POR TIPO DE AFILIACIÓN</td></tr>';
     tbody.innerHTML += seccionAfiliacion;
 
     datosActuales.afiliacion.forEach(afiliacion => {
-        const barra = Math.round((afiliacion.casos / datosActuales.totalCasos) * 100);
+        const porcentaje = Number(afiliacion.porcentaje) || 0;
         const row = `
             <tr>
                 <td><strong>${afiliacion.tipo}</strong></td>
                 <td class="text-center"><strong>${afiliacion.casos}</strong></td>
                 <td class="text-center"><strong>${afiliacion.porcentaje}%</strong></td>
                 <td>
-                    <div style="background:#E8E8E8; height:20px; border-radius:3px; overflow:hidden;">
-                        <div style="background:#003DA5; height:100%; width:${afiliacion.porcentaje}%; display:flex; align-items:center; justify-content:center; color:white; font-size:10px; font-weight:bold;">${afiliacion.porcentaje}%</div>
+                    <div class="progress-mini-wrap">
+                        <progress class="progress-mini progress-mini-afiliacion" max="100" value="${porcentaje}"></progress>
+                        <span class="progress-mini-label">${afiliacion.porcentaje}%</span>
                     </div>
                 </td>
             </tr>
@@ -1522,9 +1780,9 @@ function llenarTablaClinica() {
         tbody.innerHTML += `
             <tr>
                 <td><strong>${f.label}</strong></td>
-                <td style="text-align:center">${f.si}</td>
-                <td style="text-align:center">${no}</td>
-                <td style="text-align:center"><strong>${Number(f.pct).toFixed(1)}%</strong></td>
+                <td class="text-center">${f.si}</td>
+                <td class="text-center">${no}</td>
+                <td class="text-center"><strong>${Number(f.pct).toFixed(1)}%</strong></td>
             </tr>
         `;
     });
@@ -1585,37 +1843,23 @@ document.addEventListener('DOMContentLoaded', async function() {
     eventoActual = 549;
     try {
         const payload = await obtenerDatosDepurados549ConRetry('', null, 1);
-        datosActuales = construirDatosDesdePayload(payload);
-        totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
+        actualizarTodoDashboardConDatos(payload);
         console.log(`📦 Inicializado con archivo depurado: ${payload.archivo_depurado} (${payload.total_casos} casos)`);
         actualizarBarraEstado(payload.archivo_depurado, payload.archivo_modificado, true);
-        window._ultimoArchivo = payload.archivo_depurado;
-        window._ultimoTotal = payload.total_casos;
-
-        // Llenar filtro de municipios con datos reales
-        if (payload.municipios_disponibles) {
-            municipiosDisponibles = payload.municipios_disponibles;
-            llenarFiltroMunicipios(municipiosDisponibles);
-        }
     } catch (error) {
         console.warn('⚠️ API depurada no disponible en inicialización.', error);
         datosActuales = crearDatosVaciosDesdeDepurado();
         totalSinFiltroActual = 0;
         actualizarBarraEstado(null, null, false);
-        window._ultimoArchivo = null;
-        window._ultimoTotal = null;
+        ultimaVersionDatos = null;
     }
     
-    // Actualizar información dinámica
+    // Render inicial completo
     actualizarBoletinDinamico();
-
-    // Llenar tablas
     llenarTablaSociodemografica();
     llenarTablaTerritorial();
     llenarTablaCalidad();
     llenarTablaClinica();
-
-    // Crear gráficos
     graficoSemanas();
     graficoComparativo();
     graficoEdad();
@@ -1627,59 +1871,13 @@ document.addEventListener('DOMContentLoaded', async function() {
     graficoOportunidad();
     graficoDiasNotificacion();
     actualizarComparacionInteranualSemanal();
-
-    // Forzar resize después de que todo se renderice
     setTimeout(resizeTodosGraficos, 300);
 
     console.log('✅ Dashboard inicializado correctamente');
 
-    // Auto-refresh: cada 30s verificar si hay datos nuevos
-    setInterval(async () => {
-        try {
-            const payload = await obtenerDatosDepurados549ConRetry(municipioFiltroActual, null, 1);
-            const nuevoArchivo = payload.archivo_depurado;
-            const nuevoTotal = payload.total_casos;
-            totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
-
-            const archivoInfoAuto = municipioFiltroActual
-                ? `${payload.archivo_depurado} (${municipioFiltroActual}: ${payload.total_casos} de ${payload.total_sin_filtro})`
-                : payload.archivo_depurado;
-            actualizarBarraEstado(archivoInfoAuto, payload.archivo_modificado, true);
-
-            // Actualizar lista de municipios si cambió
-            if (payload.municipios_disponibles && JSON.stringify(payload.municipios_disponibles) !== JSON.stringify(municipiosDisponibles)) {
-                municipiosDisponibles = payload.municipios_disponibles;
-                llenarFiltroMunicipios(municipiosDisponibles);
-            }
-
-            // Solo actualizar si cambió el archivo o la cantidad de casos
-            if (nuevoArchivo !== window._ultimoArchivo || nuevoTotal !== window._ultimoTotal) {
-                console.log(`🔄 Datos actualizados: ${nuevoArchivo} (${nuevoTotal} casos)`);
-                window._ultimoArchivo = nuevoArchivo;
-                window._ultimoTotal = nuevoTotal;
-
-                datosActuales = construirDatosDesdePayload(payload);
-                actualizarBarraEstado(nuevoArchivo, payload.archivo_modificado, true);
-                actualizarBoletinDinamico();
-                llenarTablaSociodemografica();
-                llenarTablaTerritorial();
-                llenarTablaCalidad();
-                llenarTablaClinica();
-                graficoSemanas();
-                graficoComparativo();
-                graficoEdad();
-                graficoEdadSocio();
-                graficoAfiliacion();
-                graficoCausas();
-                graficoMomento();
-                graficoMapa();
-                graficoOportunidad();
-                graficoDiasNotificacion();
-                actualizarComparacionInteranualSemanal();
-            }
-        } catch (err) {
-            // Silencioso — no interrumpir si el servidor no responde
-        }
-    }, 30000);
-    window._ultimoTotal = null;
+    if (timerEdadDatos) {
+        clearInterval(timerEdadDatos);
+    }
+    timerEdadDatos = setInterval(actualizarEdadDatosVisual, 1000);
+    actualizarEdadDatosVisual();
 });

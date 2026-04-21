@@ -25,14 +25,18 @@ const { execSync } = require("child_process");
 // ============================================================
 
 const API_URL =
+  process.env.APPS_SCRIPT_DEPLOY_URL ||
   "https://script.google.com/macros/s/AKfycbx6lFYxQtS0sUOIw3713SH5NSwatq-4vYf_eHiedqk3cJgQN_vgzd7rFa1Om-VqLGpd/exec";
-const API_KEY = "123456";
+const API_KEY = process.env.APPS_SCRIPT_API_KEY || "123456";
 
 // Directorios del proyecto EPIPROCESS (relativos a este script)
 const BASE_DIR = __dirname;
 const INPUT_DIR = path.join(BASE_DIR, "data", "ENTRADA_SIVIGILA");
 const CACHE_PATH = path.join(BASE_DIR, "data", "DEPURADO", ".bridge_cache.json");
-const PYTHON_EXE = path.join(BASE_DIR, "venv", "Scripts", "python.exe");
+const VENV_PYTHON = path.join(BASE_DIR, "venv", "Scripts", "python.exe");
+const PYTHON_EXE = fs.existsSync(VENV_PYTHON)
+  ? VENV_PYTHON
+  : (process.env.PYTHON_EXE || "python");
 const MAIN_PY = path.join(BASE_DIR, "main.py");
 
 // ============================================================
@@ -230,7 +234,7 @@ async function descargarArchivo(file) {
  */
 function lanzarPipelinePython(rutaArchivo) {
   try {
-    const cmd = `"${PYTHON_EXE}" "${MAIN_PY}" --archivo "${rutaArchivo}" --boletin`;
+    const cmd = `"${PYTHON_EXE}" "${MAIN_PY}" --archivo "${rutaArchivo}" --boletin --mme-final`;
     console.log(`  🐍 Ejecutando: main.py --archivo ${path.basename(rutaArchivo)}`);
 
     execSync(cmd, {

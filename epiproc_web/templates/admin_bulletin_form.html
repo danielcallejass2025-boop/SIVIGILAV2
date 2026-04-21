@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card form-card secretary-form-card">
+    <div class="secretary-form-head">
+        <h2>{{ 'Editar boletín' if bulletin else 'Nuevo boletín' }}</h2>
+        <a class="btn" href="{{ url_for('admin_bulletins') }}">Volver a boletines</a>
+    </div>
+
+    <p class="muted">Define el evento, el estado y el contenido oficial del boletín.</p>
+
+    <form method="post" class="form-grid" novalidate>
+        <label>Título
+            <input type="text" name="title" required minlength="6" maxlength="180" value="{{ bulletin.title if bulletin else '' }}">
+        </label>
+
+        <label>Evento
+            <select name="event_code" required>
+                <option value="">Seleccionar</option>
+                {% for e in eventos %}
+                    <option value="{{ e.code }}" {% if bulletin and bulletin.event_code == e.code %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <label>Estado
+            <select name="status" required>
+                <option value="BORRADOR" {% if bulletin and bulletin.status == 'BORRADOR' %}selected{% endif %}>BORRADOR</option>
+                <option value="PUBLICADO" {% if bulletin and bulletin.status == 'PUBLICADO' %}selected{% endif %}>PUBLICADO</option>
+            </select>
+        </label>
+
+        <label>Contenido
+            <textarea name="content" rows="10" minlength="20" required>{{ bulletin.content if bulletin else '' }}</textarea>
+        </label>
+
+        <button class="btn btn-primary" type="submit">Guardar boletín</button>
+    </form>
+</section>
+{% endblock %}

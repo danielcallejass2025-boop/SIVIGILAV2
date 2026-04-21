@@ -1,0 +1,262 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="dashboard-legacy-frame-wrap">
+    <iframe
+        id="legacyDashboardFrame"
+        class="dashboard-legacy-frame"
+        src="{{ dashboard_url }}"
+        title="Dashboard epidemiológico legado"
+        loading="eager"
+        referrerpolicy="same-origin"
+    ></iframe>
+</section>
+
+<script>
+(function () {
+    const frame = document.getElementById('legacyDashboardFrame');
+    if (!frame) {
+        return;
+    }
+
+    const applyEmbedTheme = function () {
+        try {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            if (!doc) {
+                return;
+            }
+
+            if (doc.getElementById('epiprocEmbedStyle')) {
+                return;
+            }
+
+            const style = doc.createElement('style');
+            style.id = 'epiprocEmbedStyle';
+            style.textContent = `
+                body {
+                    background: #f4f6fb !important;
+                }
+                .container {
+                    max-width: 1220px !important;
+                    padding: 20px !important;
+                }
+                .header {
+                    background: #ffffff !important;
+                    border-top: 5px solid #2f5fbd !important;
+                    border-bottom: 1px solid #d2dcef !important;
+                    padding: 14px 18px !important;
+                }
+                .header .header-content {
+                    width: min(1100px, 96%) !important;
+                    margin: 0 auto !important;
+                }
+                .header .header-content h1,
+                .header .header-institution,
+                .header #evento-info {
+                    display: none !important;
+                }
+                .header .header-brand,
+                .header .header-live {
+                    display: none !important;
+                }
+                .header .selector-evento-container {
+                    margin: 0 auto !important;
+                    max-width: 680px !important;
+                    border: 1px solid #c7d4ee !important;
+                    border-radius: 12px !important;
+                    background: #ffffff !important;
+                    box-shadow: none !important;
+                    padding: 10px 14px !important;
+                }
+                .header .selector-evento-label {
+                    color: #274b8e !important;
+                    font-size: 0.78rem !important;
+                    text-transform: uppercase !important;
+                    letter-spacing: 0.04em !important;
+                    font-weight: 700 !important;
+                    margin-bottom: 6px !important;
+                }
+                .header .selector-evento {
+                    border: 1px solid #c7d4ee !important;
+                    border-radius: 10px !important;
+                    min-height: 44px !important;
+                    font-size: 1rem !important;
+                    color: #213148 !important;
+                    background: #fff !important;
+                }
+                .header .selector-evento:focus {
+                    outline: none !important;
+                    border-color: #2f5fbd !important;
+                    box-shadow: 0 0 0 3px rgba(47, 95, 189, 0.16) !important;
+                }
+                .nav-tabs {
+                    border-top: 0 !important;
+                }
+                .dashboard-tabs-container,
+                .barra-control-dashboard,
+                .grafico-box,
+                .grafico-contenedor,
+                .tabla-section,
+                .mapa-tabla-container {
+                    border-radius: 12px !important;
+                    box-shadow: 0 1px 3px rgba(32, 64, 126, 0.08) !important;
+                }
+                .graficos-grid.grid-2col {
+                    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                }
+                .grafico-box,
+                .grafico-contenedor,
+                .tabla-section,
+                .tabla-section-territorial,
+                .mapa-section {
+                    overflow: hidden !important;
+                }
+                .grafico-box > div[id^="grafico-"],
+                .grafico-contenedor > div[id^="grafico-"] {
+                    min-height: 320px !important;
+                    width: 100% !important;
+                }
+                @media (max-width: 1200px) {
+                    .graficos-grid.grid-2col {
+                        grid-template-columns: 1fr !important;
+                    }
+                }
+            `;
+            doc.head.appendChild(style);
+        } catch (err) {
+            // Ignorar errores transitorios de acceso al iframe.
+        }
+    };
+
+    const optimizeChartsForEmbed = function () {
+        try {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            const win = frame.contentWindow;
+            if (!doc || !win || !win.Plotly) {
+                return;
+            }
+
+            if (typeof win.resizeTodosGraficos === 'function') {
+                win.resizeTodosGraficos();
+            }
+
+            const chartNodes = doc.querySelectorAll('div[id^="grafico-"]');
+            chartNodes.forEach(function (node) {
+                if (!node || !node.data || !Array.isArray(node.data)) {
+                    return;
+                }
+
+                win.Plotly.Plots.resize(node);
+
+                if (node.dataset.embedTuned === '1') {
+                    return;
+                }
+
+                const isPie = node.data.some(function (trace) {
+                    return trace && trace.type === 'pie';
+                });
+
+                if (isPie) {
+                    win.Plotly.relayout(node, {
+                        legend: {
+                            orientation: 'h',
+                            x: 0.5,
+                            xanchor: 'center',
+                            y: -0.08
+                        },
+                        margin: { l: 20, r: 20, t: 20, b: 70 },
+                        autosize: true
+                    });
+                    node.dataset.embedTuned = '1';
+                }
+            });
+        } catch (err) {
+            // Ignorar errores transitorios de render.
+        }
+    };
+
+    const forceDashboardOnlyView = function () {
+        try {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            if (!doc) {
+                return;
+            }
+
+            applyEmbedTheme();
+
+            const boletinSection = doc.getElementById('boletin');
+            if (boletinSection) {
+                boletinSection.style.display = 'none';
+                boletinSection.classList.remove('active');
+            }
+
+            const dashboardSection = doc.getElementById('dashboard');
+            if (dashboardSection) {
+                dashboardSection.style.display = 'block';
+                dashboardSection.classList.add('active');
+            }
+
+            const mainTabs = doc.querySelectorAll('.tab-btn');
+            if (mainTabs.length >= 2) {
+                mainTabs.forEach(function (btn, idx) {
+                    if (idx === 0) {
+                        btn.style.display = 'none';
+                        btn.classList.remove('active');
+                    } else if (idx === 1) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+
+            const navTabsContainer = doc.querySelector('.nav-tabs');
+            if (navTabsContainer) {
+                navTabsContainer.style.pointerEvents = 'none';
+            }
+
+            if (frame.contentWindow && typeof frame.contentWindow.cambiarVista === 'function') {
+                frame.contentWindow.cambiarVista('dashboard');
+            }
+        } catch (err) {
+            // Ignorar errores transitorios de acceso al iframe.
+        }
+    };
+
+    const resizeFrame = function () {
+        try {
+            const doc = frame.contentDocument || frame.contentWindow.document;
+            if (!doc) {
+                return;
+            }
+            const bodyHeight = doc.body ? doc.body.scrollHeight : 0;
+            const htmlHeight = doc.documentElement ? doc.documentElement.scrollHeight : 0;
+            const newHeight = Math.max(bodyHeight, htmlHeight, 1200);
+            frame.style.height = (newHeight + 20) + 'px';
+        } catch (err) {
+            // Ignorar errores transitorios de carga del iframe.
+        }
+    };
+
+    frame.addEventListener('load', function () {
+        applyEmbedTheme();
+        forceDashboardOnlyView();
+        optimizeChartsForEmbed();
+        resizeFrame();
+        setTimeout(applyEmbedTheme, 100);
+        setTimeout(forceDashboardOnlyView, 200);
+        setTimeout(optimizeChartsForEmbed, 260);
+        setTimeout(resizeFrame, 300);
+        setTimeout(forceDashboardOnlyView, 1000);
+        setTimeout(optimizeChartsForEmbed, 1100);
+        setTimeout(resizeFrame, 1200);
+    });
+
+    window.addEventListener('resize', resizeFrame);
+    setInterval(function () {
+        applyEmbedTheme();
+        forceDashboardOnlyView();
+        optimizeChartsForEmbed();
+        resizeFrame();
+    }, 3000);
+})();
+</script>
+{% endblock %}

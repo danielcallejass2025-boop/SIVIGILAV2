@@ -1,0 +1,53 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<section class="card hero hero-intro">
+    <p class="hero-kicker">Plataforma de vigilancia epidemiológica</p>
+    <h2>EPIPROC - Procesamiento Epidemiológico</h2>
+    <p class="lead">
+        Sistema para analizar, monitorear y comunicar información epidemiológica del departamento.
+        El acceso público permite visualizar el comportamiento del evento y consultar boletines en modo lectura.
+    </p>
+    <div class="actions">
+        <a class="btn btn-primary" href="{{ url_for('dashboard_public') }}">Ver dashboard</a>
+        <a class="btn" href="{{ url_for('bulletins_public') }}">Ver boletines</a>
+        {% if not current_user %}
+            <a class="btn" href="{{ url_for('login') }}">Ingresar al sistema</a>
+        {% endif %}
+    </div>
+</section>
+
+<section class="intro-grid">
+    <article class="card">
+        <h3>¿Qué permite este software?</h3>
+        <ul class="feature-list">
+            <li>Visualizar indicadores y gráficas del evento en un solo panel.</li>
+            <li>Consultar datos depurados con actualización continua.</li>
+            <li>Aplicar filtros por municipio para análisis territorial.</li>
+            <li>Publicar y consultar boletines epidemiológicos de forma controlada.</li>
+            <li>Gestionar perfiles de trabajo para Secretaría y Epidemiología.</li>
+        </ul>
+    </article>
+
+    <article class="card">
+        <h3>Flujo de operación del sistema</h3>
+        <ol class="timeline">
+            <li>Ingreso y depuración del archivo epidemiológico.</li>
+            <li>Consolidación de métricas y distribución territorial.</li>
+            <li>Visualización en dashboard con filtros operativos.</li>
+            <li>Generación y publicación de boletines.</li>
+        </ol>
+        <p class="muted">La visualización se alimenta de la fuente depurada activa para mantener coherencia en todo el sistema.</p>
+    </article>
+</section>
+
+<section class="card">
+    <h3>Eventos disponibles</h3>
+    <p class="muted">Catálogo de eventos configurados para vigilancia epidemiológica.</p>
+    <div class="chips">
+        {% for event in eventos[:40] %}
+            <span class="chip">{{ event.code }} · {{ event.name }}</span>
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}

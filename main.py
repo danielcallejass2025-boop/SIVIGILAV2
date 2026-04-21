@@ -8,7 +8,7 @@ import sys
 import argparse
 import json
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
 import requests
 
@@ -163,14 +163,36 @@ class SistemaSegregador:
                 "exitoso": False,
                 "mensaje": f"Error comunicando Apps Script: {e}"
             }
+
+    def _guardar_mme_depurado_final(self, df_depurado) -> Tuple[bool, str]:
+        """
+        Guarda una copia canónica de la depuración 549 para consumo operativo.
+        """
+        try:
+            ruta_out = self.settings.OUTPUT_DIR / "MME_Depurado_Final.csv"
+            ruta_out.parent.mkdir(parents=True, exist_ok=True)
+            df_depurado.to_csv(ruta_out, index=False, encoding="utf-8-sig")
+            self.logger.info(f"✅ Exportado MME_Depurado_Final: {ruta_out}")
+            return True, str(ruta_out)
+        except Exception as e:
+            self.logger.warning(f"⚠️ No se pudo exportar MME_Depurado_Final.csv: {e}")
+            return False, str(e)
     
-    def procesar_archivo(self, ruta_archivo: str, generar_boletin: bool = None) -> Dict[str, Any]:
+    def procesar_archivo(
+        self,
+        ruta_archivo: str,
+        generar_boletin: bool = None,
+        limpiar_salida_previa: bool = True,
+        exportar_mme_final: bool = False
+    ) -> Dict[str, Any]:
         """
         Procesa un archivo epidemiológico completo
         
         Args:
             ruta_archivo: Ruta al archivo a procesar
             generar_boletin: Si es True, genera boletín (default: desde settings)
+            limpiar_salida_previa: Si es True, limpia carpeta DEPURADO antes de guardar
+            exportar_mme_final: Si es True y el evento es 549, exporta MME_Depurado_Final.csv
             
         Returns:
             Diccionario con resultado del procesamiento
@@ -192,7 +214,10 @@ class SistemaSegregador:
         try:
             # PASO 1: Lectura del archivo
             self.logger.info(f"Leyendo archivo: {ruta_archivo}")
-            df, metadatos = self.lector.leer(ruta_archivo)
+            df, metadatos = self.lector.leer(
+                ruta_archivo,
+                leer_todas_hojas=self.settings.PROCESS_ALL_SHEETS
+            )
             
             if df is None:
                 resultado["errores"].append(f"Error leyendo archivo: {metadatos.get('error')}")
@@ -249,11 +274,25 @@ class SistemaSegregador:
                 "columnas_encontradas": len([v for v in mapeo_columnas.values() if v is not None])
             })
             
-            # PASO 4: Depuración general + específica
-            self.logger.info(f"Depurando evento {codigo_evento}...")
-            df_depurado, rep_depuracion = self.gestor_depuracion.depurar_evento_549(
-                df_normalizado
-            )
+            # PASO 4: Depuración específica por evento (si existe)
+            if self.gestor_depuracion.es_aplicable(codigo_evento):
+                self.logger.info(f"Depurando evento {codigo_evento} con rutina específica...")
+                df_depurado, rep_depuracion = self.gestor_depuracion.depurar_evento_549(
+                    df_normalizado
+                )
+            else:
+                self.logger.info(
+                    f"Sin rutina específica para evento {codigo_evento}; se conserva normalización"
+                )
+                df_depurado = df_normalizado.copy()
+                rep_depuracion = {
+                    "evento": int(codigo_evento) if codigo_evento is not None else None,
+                    "estado": "SIN_REGLA_ESPECIFICA",
+                    "descripcion": "No existe depuración específica implementada para este evento",
+                    "filas_inicio": len(df_normalizado),
+                    "filas_fin": len(df_normalizado),
+                    "filas_eliminadas": 0
+                }
             
             if len(df_depurado) == 0:
                 resultado["errores"].append("Depuración resultó en cero filas")
@@ -264,6 +303,24 @@ class SistemaSegregador:
                 "paso": "DEPURACION",
                 "reporte": rep_depuracion
             })
+
+            # Limpiar salidas locales anteriores para conservar solo la depuración más reciente
+            if limpiar_salida_previa:
+                limpieza_depurado = self.gestor_salida.limpiar_archivos_depurados_previos()
+                resultado["pasos"].append({
+                    "paso": "LIMPIEZA_DEPURADO",
+                    "reporte": limpieza_depurado
+                })
+
+            # Exportación canónica para el flujo operativo del evento 549
+            if int(codigo_evento) == 549 and exportar_mme_final:
+                ok_mme, salida_mme = self._guardar_mme_depurado_final(df_depurado)
+                resultado["pasos"].append({
+                    "paso": "SALIDA_MME_FINAL",
+                    "exitoso": ok_mme,
+                    "ruta": salida_mme if ok_mme else None,
+                    "error": None if ok_mme else salida_mme
+                })
             
             # PASO 5: Anonimización obligatoria
             self.logger.info("Anonimizando datos sensibles...")
@@ -286,11 +343,6 @@ class SistemaSegregador:
             
             # PASO 7: Guardar archivo depurado
             self.logger.info("Guardando archivo depurado...")
-            limpieza_depurado = self.gestor_salida.limpiar_archivos_depurados_previos()
-            resultado["pasos"].append({
-                "paso": "LIMPIEZA_DEPURADO",
-                "reporte": limpieza_depurado
-            })
 
             nombre_salida = (
                 f"{Path(ruta_archivo).stem}_"
@@ -328,7 +380,10 @@ class SistemaSegregador:
                         for formato, (exitoso, ruta) in resultados_salida.items():
                             if exitoso and Path(ruta).exists():
                                 try:
-                                    nombre_archivo_drive = f"{nombre_salida}.{formato.lower()}"
+                                    if int(codigo_evento) == 549 and exportar_mme_final:
+                                        nombre_archivo_drive = f"549 MME_Depurado_Final.{formato.lower()}"
+                                    else:
+                                        nombre_archivo_drive = f"{nombre_salida}.{formato.lower()}"
                                     ok_subida, resultado_subida = lector_drive.subir_archivo(
                                         ruta,
                                         self.settings.GOOGLE_DRIVE_OUTPUT_FOLDER_ID,
@@ -460,9 +515,19 @@ class SistemaSegregador:
             self._mover_archivo_error(ruta_archivo, str(e))
             return resultado
     
-    def procesar_carpeta(self) -> Dict[str, Any]:
+    def procesar_carpeta(
+        self,
+        generar_boletin: Optional[bool] = None,
+        limpiar_salida_previa: bool = True,
+        exportar_mme_final: bool = False
+    ) -> Dict[str, Any]:
         """
         Procesa todos los archivos de la carpeta de entrada
+
+        Args:
+            generar_boletin: Si es True, fuerza generación de boletín
+            limpiar_salida_previa: Si es True, limpia DEPURADO una vez antes del lote
+            exportar_mme_final: Si es True, exporta MME_Depurado_Final.csv para archivos 549
         
         Returns:
             Reporte de procesamiento
@@ -488,7 +553,12 @@ class SistemaSegregador:
         for archivo in archivos:
             self.logger.info(f"\nProcesando: {archivo.name}")
             
-            resultado = self.procesar_archivo(str(archivo))
+            resultado = self.procesar_archivo(
+                str(archivo),
+                generar_boletin=generar_boletin,
+                limpiar_salida_previa=limpiar_salida_previa,
+                exportar_mme_final=exportar_mme_final
+            )
             reporte_general["resultados"].append(resultado)
             
             if resultado["exitoso"]:
@@ -512,19 +582,25 @@ class SistemaSegregador:
             self.logger.error(f"No se pudo mover archivo a ERROR: {ruta_archivo}")
     
     def mostrar_dashboard(self):
-        """Inicia el dashboard Streamlit"""
+        """Inicia el dashboard web local"""
         import subprocess
         
-        # Usar el script wrapper que configura correctamente los paths
+        # Priorizar wrapper si existe; si no, usar servidor HTTP directo.
         script_dashboard = Path(__file__).parent / "run_dashboard.py"
+        script_servidor = Path(__file__).parent / "servidor_dashboard.py"
+        script_objetivo = script_dashboard if script_dashboard.exists() else script_servidor
+        puerto_dashboard = self.settings.STREAMLIT_PORT if script_objetivo == script_dashboard else 8000
         
-        self.logger.info(f"Iniciando dashboard en puerto {self.settings.STREAMLIT_PORT}...")
+        if script_objetivo == script_servidor:
+            self.logger.warning("run_dashboard.py no encontrado; usando servidor_dashboard.py")
+        
+        self.logger.info(f"Iniciando dashboard web en puerto {puerto_dashboard}...")
         
         try:
             # Ejecutar con python para asegurar que el path esté configurado
             subprocess.run([
                 sys.executable,  # Usa el Python del venv
-                str(script_dashboard)
+                str(script_objetivo)
             ])
         except Exception as e:
             self.logger.error(f"Error iniciando dashboard: {e}")
@@ -605,8 +681,15 @@ Ejemplos de uso:
         default=None,
         help='Intervalo de monitoreo en segundos'
     )
+
+    parser.add_argument(
+        '--mme-final',
+        action='store_true',
+        help='Exportar MME_Depurado_Final.csv cuando el evento sea 549'
+    )
     
     args = parser.parse_args()
+    generar_boletin_arg = True if args.boletin else None
     
     # Crear sistema
     sistema = SistemaSegregador()
@@ -627,14 +710,21 @@ Ejemplos de uso:
     
     if args.archivo:
         # Procesar archivo específico
-        resultado = sistema.procesar_archivo(args.archivo)
+        resultado = sistema.procesar_archivo(
+            args.archivo,
+            generar_boletin=generar_boletin_arg,
+            exportar_mme_final=args.mme_final
+        )
         print(f"\n{'='*60}")
         print(f"Procesamiento: {'EXITOSO' if resultado['exitoso'] else 'FALLIDO'}")
         print(f"{'='*60}\n")
     
     elif args.local or (not args.dashboard and not args.hibrido and not args.drive):
         # Procesar carpeta local (default)
-        reporte = sistema.procesar_carpeta()
+        reporte = sistema.procesar_carpeta(
+            generar_boletin=generar_boletin_arg,
+            exportar_mme_final=args.mme_final
+        )
         print(f"\n{'='*60}")
         print(f"Resumen: {reporte['resumen']['exitosos']} exitosos, "
               f"{reporte['resumen']['fallidos']} fallidos")
@@ -657,7 +747,10 @@ Ejemplos de uso:
             sistema.logger.warning("⚠️ No hay conexión con Google Drive")
         
         # Procesar todos los archivos (locales + descargados)
-        reporte = sistema.procesar_carpeta()
+        reporte = sistema.procesar_carpeta(
+            generar_boletin=generar_boletin_arg,
+            exportar_mme_final=args.mme_final
+        )
     
     elif args.drive:
         # Solo Google Drive - descargar, procesar y subir
@@ -678,7 +771,10 @@ Ejemplos de uso:
             sistema.logger.error(f"Error sincronizando: {e}")
         
         # Procesar archivos descargados
-        reporte = sistema.procesar_carpeta()
+        reporte = sistema.procesar_carpeta(
+            generar_boletin=generar_boletin_arg,
+            exportar_mme_final=args.mme_final
+        )
     
     if args.dashboard:
         sistema.mostrar_dashboard()
