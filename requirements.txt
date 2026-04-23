@@ -18,7 +18,7 @@ Flask==3.0.3
 Flask-SQLAlchemy==3.1.1
 
 # Data processing & validation
-numpy==1.24.3
+numpy==1.26.4
 fuzzywuzzy==0.18.0
 python-Levenshtein==0.23.0
 
@@ -30,5 +30,4 @@ requests==2.32.0
 pyyaml==6.0.1
 pytz==2024.1
 cryptography==46.0.6
-pip freeze > requirements.txt
 
