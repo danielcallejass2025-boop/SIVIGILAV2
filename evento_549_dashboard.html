@@ -11,6 +11,20 @@
     <!-- CDN Leaflet para mapa choropleth -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+
+    <!-- Tailwind CDN (sin preflight para no alterar estilos existentes del dashboard) -->
+    <script>
+        window.tailwind = window.tailwind || {};
+        window.tailwind.config = {
+            corePlugins: {
+                preflight: false
+            }
+        };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- html2pdf para descarga del boletín institucional -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     
     <!-- CSS Externo -->
     <link rel="stylesheet" href="evento_549_dashboard.css?v=20260421-rt1">
@@ -829,26 +843,28 @@
 
                 <!-- MAPA Y TABLA LADO A LADO -->
                 <section class="mapa-tabla-container">
-                    <div class="mapa-section">
-                        <h4>Mapa de Risaralda — Razón de MME por Municipio</h4>
-                        <div id="grafico-mapa"></div>
-                    </div>
-                    
                     <div class="tabla-section-territorial">
-                        <h4>Razón de MME por Municipio de Residencia × 1.000 NV</h4>
+                        <h4>Razón de MME por municipio de residencia por 1.000 NV</h4>
+                        <p class="chart-subtitle" id="subtitle-tabla-territorial">Risaralda PE II SE 08, 2026</p>
                         <table class="tabla-dashboard tabla-territorial">
                             <thead>
                                 <tr class="territorial-header-row">
-                                    <th class="territorial-col-rank">#</th>
                                     <th class="territorial-col-name">Municipio</th>
                                     <th class="territorial-col-cases">Nº Casos</th>
-                                    <th class="territorial-col-nv">NV 2025</th>
+                                    <th class="territorial-col-nv">Nacidos vivos 2026</th>
                                     <th class="territorial-col-ratio">Razón MME</th>
                                 </tr>
                             </thead>
                             <tbody id="tabla-territorial-body">
                             </tbody>
                         </table>
+                        <p id="tabla-territorial-fuente" class="tabla-territorial-fuente">Fuente: SIVIGILA 2026</p>
+                    </div>
+
+                    <div class="mapa-section">
+                        <h4>Mapa de Riesgo por Municipio - Razón MME 2026</h4>
+                        <p class="chart-subtitle" id="subtitle-grafico-mapa">Croquis municipal de la razón MME por 1.000 nacidos vivos.</p>
+                        <div id="grafico-mapa"></div>
                     </div>
                 </section>
             </div>
@@ -926,6 +942,6 @@
     </footer>
 
     <!-- Scripts -->
-    <script src="evento_549_dashboard.js?v=20260421-rt1"></script>
+    <script src="evento_549_dashboard.js?v=20260423-rt10"></script>
 </body>
 </html>

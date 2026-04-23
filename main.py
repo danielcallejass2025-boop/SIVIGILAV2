@@ -7,6 +7,7 @@ Coordina lectura, depuración, anonimización y salida de archivos epidemiológi
 import sys
 import argparse
 import json
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
@@ -62,6 +63,35 @@ class SistemaSegregador:
         dias_transcurridos = (fecha.date() - inicio_anio.date()).days + 1
         offset_domingo = (inicio_anio.weekday() + 1) % 7  # domingo=0
         return ((dias_transcurridos + offset_domingo - 1) // 7) + 1
+
+    def _detectar_evento_desde_nombre_archivo(self, ruta_archivo: str) -> Optional[Dict[str, Any]]:
+        """Intenta inferir el código de evento desde el nombre del archivo."""
+        stem = Path(ruta_archivo).stem
+        candidatos = re.findall(r"\d{2,5}", stem)
+        if not candidatos:
+            return None
+
+        candidatos_validos = []
+        for token in candidatos:
+            try:
+                codigo = int(token)
+            except ValueError:
+                continue
+
+            evento = self.detector_evento.config.obtener_evento(codigo)
+            if evento:
+                candidatos_validos.append((codigo, evento.get("nombre", "Evento desconocido")))
+
+        if not candidatos_validos:
+            return None
+
+        codigo_evento, nombre_evento = candidatos_validos[0]
+        return {
+            "codigo": codigo_evento,
+            "nombre": nombre_evento,
+            "candidatos": [c for c, _ in candidatos_validos],
+            "nombre_archivo": Path(ruta_archivo).name,
+        }
 
     def _mapear_clasificacion(self, valor: Any) -> str:
         """Mapea clasificaciones heterogéneas a valores esperados por Apps Script."""
@@ -234,14 +264,33 @@ class SistemaSegregador:
             # PASO 2: Detección del evento
             self.logger.info("Detectando evento epidemiológico...")
             info_evento = self.detector_evento.detectar_completo(df)
-            
-            if not info_evento["exitoso"]:
+            evento_desde_nombre = self._detectar_evento_desde_nombre_archivo(ruta_archivo)
+
+            if info_evento["exitoso"]:
+                codigo_evento = info_evento["evento_predominante"]
+                nombre_evento = info_evento["nombre_evento"]
+                fuente_evento = "DATOS"
+
+                if evento_desde_nombre:
+                    codigo_nombre = evento_desde_nombre["codigo"]
+                    nombre_nombre = evento_desde_nombre["nombre"]
+                    if int(codigo_nombre) != int(codigo_evento):
+                        self.logger.warning(
+                            f"⚠️ Evento en nombre de archivo ({codigo_nombre}) difiere del detectado "
+                            f"en datos ({codigo_evento}). Se prioriza el nombre del archivo."
+                        )
+                    codigo_evento = codigo_nombre
+                    nombre_evento = nombre_nombre
+                    fuente_evento = "NOMBRE_ARCHIVO"
+            elif evento_desde_nombre:
+                codigo_evento = evento_desde_nombre["codigo"]
+                nombre_evento = evento_desde_nombre["nombre"]
+                fuente_evento = "NOMBRE_ARCHIVO"
+                self.logger.info(f"Evento inferido desde nombre de archivo: {codigo_evento} ({nombre_evento})")
+            else:
                 resultado["errores"].append("No se pudo detectar el evento")
                 self._mover_archivo_error(ruta_archivo, "No se detectó evento")
                 return resultado
-            
-            codigo_evento = info_evento["evento_predominante"]
-            nombre_evento = info_evento["nombre_evento"]
             
             resultado["pasos"].append({
                 "paso": "DETECCION_EVENTO",
@@ -249,6 +298,8 @@ class SistemaSegregador:
                     "codigo": codigo_evento,
                     "nombre": nombre_evento
                 },
+                "fuente": fuente_evento,
+                "evento_por_nombre_archivo": evento_desde_nombre,
                 "info_completa": info_evento
             })
             

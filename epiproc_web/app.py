@@ -44,6 +44,71 @@ DEFAULT_APPS_SCRIPT_DEPLOY_URL = (
     "https://script.google.com/macros/s/AKfycbxQ2zAs2LznfhA_uEUx3bE95LjP0JdS95kWg_4qbrkxmOCxJQXj_0_s7SF378zm8WJf/exec"
 )
 
+_RISARALDA_GEOJSON_CACHE: dict[str, Any] = {
+    "path": None,
+    "mtime_ns": None,
+    "data": None,
+}
+
+
+def _extract_geojson_from_layer_js(raw_text: str) -> Optional[dict[str, Any]]:
+    marker = "var json_Departamento_Risaralda_1 ="
+    if marker not in raw_text:
+        return None
+
+    start = raw_text.find(marker)
+    if start < 0:
+        return None
+
+    payload = raw_text[start + len(marker):].strip()
+    if payload.endswith(";"):
+        payload = payload[:-1].strip()
+
+    try:
+        data = json.loads(payload)
+    except Exception:
+        return None
+
+    if not isinstance(data, dict) or data.get("type") != "FeatureCollection":
+        return None
+
+    return data
+
+
+def _resolve_risaralda_layer_path(base_dir: Path) -> Optional[Path]:
+    candidates = [
+        base_dir / "assets" / "mapa_risaralda" / "Departamento_Risaralda_1.js",
+        Path.home() / "Downloads" / "Mapa risaralda" / "Risaralda_Cosechada_2024" / "layers" / "Departamento_Risaralda_1.js",
+    ]
+    for path in candidates:
+        if path.exists() and path.is_file():
+            return path
+    return None
+
+
+def _load_risaralda_geojson(base_dir: Path) -> tuple[Optional[dict[str, Any]], Optional[Path]]:
+    layer_path = _resolve_risaralda_layer_path(base_dir)
+    if layer_path is None:
+        return None, None
+
+    st = layer_path.stat()
+    if (
+        _RISARALDA_GEOJSON_CACHE.get("path") == str(layer_path)
+        and _RISARALDA_GEOJSON_CACHE.get("mtime_ns") == st.st_mtime_ns
+        and isinstance(_RISARALDA_GEOJSON_CACHE.get("data"), dict)
+    ):
+        return _RISARALDA_GEOJSON_CACHE["data"], layer_path
+
+    raw = layer_path.read_text(encoding="utf-8", errors="ignore")
+    data = _extract_geojson_from_layer_js(raw)
+    if data is None:
+        return None, layer_path
+
+    _RISARALDA_GEOJSON_CACHE["path"] = str(layer_path)
+    _RISARALDA_GEOJSON_CACHE["mtime_ns"] = st.st_mtime_ns
+    _RISARALDA_GEOJSON_CACHE["data"] = data
+    return data, layer_path
+
 
 def _extract_event_code(value: Any) -> Optional[int]:
     txt = str(value or "").strip()
@@ -471,8 +536,30 @@ def register_routes(app: Flask, base_dir: Path) -> None:
         municipio = request.args.get("municipio")
         payload = build_legacy_evento_549_payload(base_dir=base_dir, municipio=municipio)
         if not payload.get("ok"):
-            return jsonify({"error": payload.get("error")}), 404
+            status_code = int(payload.get("status_code") or 500)
+            return jsonify({
+                "error": payload.get("error"),
+                "error_code": payload.get("error_code") or "DATA_ERROR",
+                "source": "archivo_depurado_local",
+            }), status_code
         return jsonify(payload.get("data"))
+
+    @app.route("/api/geojson-risaralda")
+    def api_geojson_risaralda():
+        geojson, source_path = _load_risaralda_geojson(base_dir)
+        if geojson is None:
+            path_txt = str(source_path) if source_path else "archivo no encontrado"
+            return jsonify({
+                "error": "No fue posible cargar el croquis municipal de Risaralda.",
+                "error_code": "MAP_GEOJSON_UNAVAILABLE",
+                "source": path_txt,
+            }), 404
+
+        return jsonify({
+            "ok": True,
+            "source": str(source_path),
+            "geojson": geojson,
+        })
 
     @app.route("/")
     def home():
@@ -492,12 +579,21 @@ def register_routes(app: Flask, base_dir: Path) -> None:
         try:
             event_code = int(request.args.get("evento", "549"))
         except ValueError:
-            return jsonify({"error": "El parámetro evento es inválido."}), 400
+            return jsonify({
+                "error": "El parámetro evento es inválido.",
+                "error_code": "INVALID_EVENT",
+                "source": "archivo_depurado_local",
+            }), 400
 
         municipio = request.args.get("municipio")
         payload = build_dashboard_data(base_dir=base_dir, event_code=event_code, municipio=municipio)
         if not payload.get("ok"):
-            return jsonify({"error": payload.get("error")}), 404
+            status_code = int(payload.get("status_code") or 500)
+            return jsonify({
+                "error": payload.get("error"),
+                "error_code": payload.get("error_code") or "DATA_ERROR",
+                "source": "archivo_depurado_local",
+            }), status_code
         return jsonify(payload.get("data"))
 
     @app.route("/boletines")

@@ -1,39 +1,1709 @@
 {% extends 'base.html' %}
 
+{% set selected_event_code = bulletin.event_code if bulletin else assigned_event %}
+{% set event_meta = namespace(name='Morbilidad Materna Extrema') %}
+{% for e in eventos %}
+    {% if selected_event_code and e.code == selected_event_code %}
+        {% set event_meta.name = e.name %}
+    {% endif %}
+{% endfor %}
+
 {% block content %}
-<section class="card form-card">
-    <h2>{{ 'Editar mi boletín' if bulletin else 'Nuevo boletín' }}</h2>
-    <p class="muted">Solo puedes gestionar boletines del evento asignado.</p>
+<script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+        corePlugins: {
+            preflight: false
+        }
+    };
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
-    <form method="post" class="form-grid" novalidate>
-        <label>Título
-            <input type="text" name="title" required minlength="6" maxlength="180" value="{{ bulletin.title if bulletin else '' }}">
-        </label>
+<section class="mx-auto max-w-[1700px]">
+    <header class="mb-4 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <img src="{{ logo_url }}" alt="EPIPROC" class="h-12 w-auto">
+                <div>
+                    <h2 id="page-editor-title" class="text-2xl font-bold text-slate-900">Boletín Epidemiológico - Vigilancia en Salud Pública</h2>
+                    <p class="text-sm text-slate-600">Editor profesional para análisis epidemiológico institucional</p>
+                </div>
+            </div>
+            <div id="header-periodo-label" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2F5E2A]">
+                Periodo I - Semana 04 de 2026
+            </div>
+        </div>
+    </header>
 
-        <label>Evento
-            <select name="event_code" required {% if assigned_event %}disabled{% endif %}>
-                <option value="">Seleccionar</option>
-                {% for e in eventos %}
-                    <option value="{{ e.code }}" {% if (bulletin and bulletin.event_code == e.code) or (not bulletin and assigned_event == e.code) %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
-                {% endfor %}
-            </select>
-            {% if assigned_event %}
-                <input type="hidden" name="event_code" value="{{ assigned_event }}">
-            {% endif %}
-        </label>
+    <form id="bulletin-editor-form" method="post" novalidate>
+        <input type="hidden" id="form-title" name="title" value="{{ bulletin.title if bulletin else '' }}">
+        <input type="hidden" id="form-status" name="status" value="{{ bulletin.status if bulletin else 'BORRADOR' }}">
+        <input type="hidden" id="form-event-code" name="event_code" value="{{ selected_event_code if selected_event_code else '' }}">
+        <textarea id="form-content" name="content" class="hidden" minlength="20" aria-label="Contenido serializado del boletín" title="Contenido serializado del boletín" placeholder="Contenido serializado del boletín">{{ bulletin.content if bulletin else '' }}</textarea>
 
-        <label>Estado
-            <select name="status" required>
-                <option value="BORRADOR" {% if bulletin and bulletin.status == 'BORRADOR' %}selected{% endif %}>BORRADOR</option>
-                <option value="PUBLICADO" {% if bulletin and bulletin.status == 'PUBLICADO' %}selected{% endif %}>PUBLICADO</option>
-            </select>
-        </label>
+        <div class="grid gap-6 lg:grid-cols-10">
+            <div class="lg:col-span-7">
+                <article id="preview-root" class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                    <section class="rounded-lg border border-slate-200 bg-white p-0">
+                        <div class="rounded-t-lg bg-[#2F5E2A] px-4 py-2 text-center text-xl font-bold text-white">Boletín Epidemiológico</div>
+                        <div class="border-b border-slate-200 px-4 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-700">Vigilancia en Salud Pública - Secretaría de Salud de Risaralda</div>
+                        <div class="px-4 py-4 text-center">
+                            <h1 id="preview-event-name" class="text-4xl font-extrabold text-[#D97706]">{{ event_meta.name }}</h1>
+                            <p id="preview-periodo" class="mt-2 text-lg font-semibold text-[#2F5E2A]">Periodo Epidemiológico I - Semana Epidemiológica 04, 2026</p>
 
-        <label>Contenido
-            <textarea name="content" rows="10" minlength="20" required>{{ bulletin.content if bulletin else '' }}</textarea>
-        </label>
+                            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+                                <div class="rounded-md border border-slate-200 bg-white p-4 text-center">
+                                    <div id="preview-total-casos" class="text-5xl font-black text-slate-900">0</div>
+                                    <div class="text-sm font-semibold uppercase tracking-wide text-slate-700">Casos reportados</div>
+                                </div>
+                                <div class="rounded-md border border-red-200 bg-red-50 p-4 text-center">
+                                    <div class="flex items-center justify-center gap-2">
+                                        <span class="text-4xl font-black text-red-600">↑</span>
+                                        <div>
+                                            <div id="preview-variacion" class="text-3xl font-black text-red-700">0.0%</div>
+                                            <div class="text-sm font-semibold text-red-700">Aumento</div>
+                                        </div>
+                                    </div>
+                                    <div id="preview-variacion-sub" class="mt-1 text-xs text-slate-600">comparado con SE 04 de 2025</div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
 
-        <button class="btn btn-primary" type="submit">Guardar boletín</button>
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Introducción</h3>
+                        <textarea id="intro-main" class="h-44 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Texto de introducción del boletín" title="Texto de introducción del boletín" placeholder="Redacta aquí la introducción epidemiológica del boletín"></textarea>
+                    </section>
+
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Materiales y métodos</h3>
+                        <textarea id="methods-main" class="h-52 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Texto de materiales y métodos" title="Texto de materiales y métodos" placeholder="Describe población, depuración, definiciones operativas y método de análisis"></textarea>
+                    </section>
+
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Comportamiento en Risaralda</h3>
+                        <div class="rounded-md border border-slate-200 p-3">
+                            <h4 class="mb-2 text-sm font-semibold text-slate-700">Comportamiento de la notificación por SE</h4>
+                            <div class="h-[320px]"><canvas id="chart-semanas"></canvas></div>
+                        </div>
+                        <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                                <div id="kpi-total-casos" class="text-xl font-bold text-[#2F5E2A]">0</div>
+                                <div class="text-xs text-slate-600">Total casos</div>
+                            </div>
+                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                                <div id="kpi-hospitalizados" class="text-xl font-bold text-[#0F766E]">0.0%</div>
+                                <div class="text-xs text-slate-600">% hospitalizados</div>
+                            </div>
+                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                                <div id="kpi-uci" class="text-xl font-bold text-[#1D4E89]">0.0%</div>
+                                <div class="text-xs text-slate-600">% UCI</div>
+                            </div>
+                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                                <div id="kpi-letalidad" class="text-xl font-bold text-[#991B1B]">0.0%</div>
+                                <div class="text-xs text-slate-600">% letalidad</div>
+                            </div>
+                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                                <div id="kpi-razon" class="text-xl font-bold text-[#B45309]">0.0</div>
+                                <div class="text-xs text-slate-600">Razón departamental</div>
+                            </div>
+                        </div>
+                        <textarea id="behavior-main" class="mt-3 h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa de comportamiento en Risaralda" title="Narrativa de comportamiento en Risaralda" placeholder="Redacta interpretación del comportamiento semanal"></textarea>
+                    </section>
+
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Variables Sociodemográficas</h3>
+
+                        <div class="mb-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5" id="vulnerables-grid">
+                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Indígena</div><div id="vul-indigena" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Afrodescendiente</div><div id="vul-afro" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Migrante</div><div id="vul-migrante" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Desplazados</div><div id="vul-desplazado" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Hospitalizados</div><div id="vul-hosp" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                        </div>
+
+                        <div class="grid gap-3 md:grid-cols-2">
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Distribución por grupo de edad</h4><div class="h-[230px]"><canvas id="chart-edad"></canvas></div></div>
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Área de residencia</h4><div class="h-[230px]"><canvas id="chart-area"></canvas></div></div>
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Estrato socioeconómico</h4><div class="h-[230px]"><canvas id="chart-estrato"></canvas></div></div>
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Afiliación</h4><div class="h-[230px]"><canvas id="chart-afiliacion"></canvas></div></div>
+                        </div>
+
+                        <div class="mt-3 overflow-x-auto rounded-md border border-slate-200">
+                            <table class="w-full border-collapse text-sm">
+                                <thead class="bg-slate-100">
+                                    <tr>
+                                        <th class="border border-slate-300 px-2 py-2 text-left">Grupo de edad</th>
+                                        <th class="border border-slate-300 px-2 py-2 text-center">Casos MME</th>
+                                        <th class="border border-slate-300 px-2 py-2 text-center">%</th>
+                                        <th class="border border-slate-300 px-2 py-2 text-center">NV</th>
+                                        <th class="border border-slate-300 px-2 py-2 text-center">Razón x 1000 NV</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tabla-edad-body"></tbody>
+                            </table>
+                        </div>
+
+                        <textarea id="socio-main" class="mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa sociodemográfica" title="Narrativa sociodemográfica" placeholder="Redacta interpretación sociodemográfica"></textarea>
+                    </section>
+
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Variables Clínicas</h3>
+                        <div class="grid gap-3 md:grid-cols-3">
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Terminación de la gestación</h4><div class="h-[220px]"><canvas id="chart-terminacion"></canvas></div></div>
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Momento del evento</h4><div class="h-[220px]"><canvas id="chart-momento"></canvas></div></div>
+                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Semanas de gestación</h4><div class="h-[220px]"><canvas id="chart-sem-ges"></canvas></div></div>
+                        </div>
+
+                        <div class="mt-3 grid gap-3 md:grid-cols-2">
+                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                                <table class="w-full border-collapse text-sm">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th class="border border-slate-300 px-2 py-2 text-left">Causas agrupadas de MME</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Casos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-causas-body"></tbody>
+                                </table>
+                            </div>
+
+                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                                <table class="w-full border-collapse text-sm">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th class="border border-slate-300 px-2 py-2 text-left">Enfermedad específica</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Casos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">%</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-especifica-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <textarea id="clinical-main" class="mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa clínica" title="Narrativa clínica" placeholder="Redacta interpretación clínica"></textarea>
+                    </section>
+
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Indicadores de interés epidemiológico</h3>
+                        <p id="nv-warning" class="mb-2 hidden rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"></p>
+
+                        <div class="grid gap-3 xl:grid-cols-2">
+                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                                <table class="w-full border-collapse text-sm">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th class="border border-slate-300 px-2 py-2 text-left">Municipio</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">N° casos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Nacidos vivos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Razón MME</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-municipio-body"></tbody>
+                                    <tfoot id="tabla-municipio-total"></tfoot>
+                                </table>
+                            </div>
+
+                            <div class="rounded-md border border-slate-200 p-3">
+                                <h4 class="mb-2 text-sm font-semibold">Mapa de Risaralda por nivel de riesgo</h4>
+                                <div id="mapa-risaralda" class="relative h-[420px] overflow-hidden rounded-md border border-slate-200 bg-slate-100"></div>
+                                <div class="mt-2 space-y-1 text-xs text-slate-700">
+                                    <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#8B1A1A]"></span>Rojo intenso (&gt; 150)</div>
+                                    <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#F4B400]"></span>Naranja (70 - 150)</div>
+                                    <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#A8D5BA]"></span>Verde (&lt; 70)</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-3 grid gap-3 md:grid-cols-2">
+                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                                <table class="w-full border-collapse text-sm">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th class="border border-slate-300 px-2 py-2 text-left">Oportunidad en la notificación por municipio</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Oportunos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">% Oportunos</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-oportunidad-body"></tbody>
+                                    <tfoot id="tabla-oportunidad-total"></tfoot>
+                                </table>
+                            </div>
+
+                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                                <table class="w-full border-collapse text-sm">
+                                    <thead class="bg-slate-100">
+                                        <tr>
+                                            <th class="border border-slate-300 px-2 py-2 text-left">UPGD con reportes inoportunos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Reportes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="tabla-upgd-body"></tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <textarea id="indicator-main" class="mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa de indicadores" title="Narrativa de indicadores" placeholder="Redacta interpretación de indicadores de interés epidemiológico"></textarea>
+                    </section>
+
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                        <h3 class="section-title">Observaciones finales</h3>
+                        <textarea id="obs-main" class="h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Observaciones finales del boletín" title="Observaciones finales del boletín" placeholder="Redacta aquí observaciones finales y recomendaciones"></textarea>
+                    </section>
+                </article>
+            </div>
+
+            <aside class="lg:col-span-3">
+                <div class="sticky top-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <h3 class="mb-3 text-base font-bold text-[#2F5E2A]">Panel lateral</h3>
+
+                    <label class="mb-3 block text-sm font-semibold text-slate-700">Título del boletín
+                        <input id="title-input" type="text" maxlength="180" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" value="{{ bulletin.title if bulletin else 'Boletín Epidemiológico - ' ~ event_meta.name }}">
+                    </label>
+
+                    <label class="mb-3 block text-sm font-semibold text-slate-700">Evento asignado
+                        <select id="event-select" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm" {% if assigned_event %}disabled{% endif %}>
+                            {% for e in eventos %}
+                                <option value="{{ e.code }}" {% if (bulletin and bulletin.event_code == e.code) or (not bulletin and selected_event_code == e.code) %}selected{% endif %}>{{ e.code }} - {{ e.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </label>
+
+                    <label class="mb-3 block text-sm font-semibold text-slate-700">Semana epidemiológica
+                        <select id="week-select" class="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"></select>
+                    </label>
+
+                    <button id="btn-apply-template" type="button" class="mb-3 w-full rounded-md border border-[#2F5E2A] bg-white px-3 py-2 text-sm font-semibold text-[#2F5E2A] hover:bg-slate-50">Aplicar plantilla oficial SE</button>
+
+                    <div class="space-y-2">
+                        <button id="btn-preview" type="button" class="w-full rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Vista Previa</button>
+                        <button id="btn-save-side" type="button" class="w-full rounded-md bg-[#1D4E89] px-4 py-2 text-sm font-semibold text-white hover:bg-[#163A66]">Guardar como Borrador</button>
+                        <button id="btn-publish-side" type="button" class="w-full rounded-md bg-[#B91C1C] px-4 py-2 text-sm font-semibold text-white hover:bg-[#991b1b]">Guardar y Publicar</button>
+                        <button id="btn-download-side" type="button" class="w-full rounded-md bg-[#0F766E] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0b5a55]">Descargar PDF</button>
+                    </div>
+
+                    <label class="mt-3 block text-sm font-semibold text-slate-700">Observaciones finales editables
+                        <textarea id="obs-side" class="mt-1 h-32 w-full rounded-md border border-slate-300 p-2 text-sm"></textarea>
+                    </label>
+
+                    <p id="sync-status" class="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">Conectando a datos depurados...</p>
+                </div>
+            </aside>
+        </div>
     </form>
 </section>
+
+<style>
+    .boletin-pdf-section {
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }
+
+    .section-title {
+        margin-bottom: 0.6rem;
+        border-radius: 6px;
+        background: #2F5E2A;
+        padding: 0.45rem 0.8rem;
+        color: #fff;
+        font-size: 0.95rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+    }
+
+    #preview-root canvas {
+        width: 100% !important;
+        height: 100% !important;
+    }
+
+    .ratio-high {
+        background: #8B1A1A;
+        color: #fff;
+        font-weight: 700;
+    }
+
+    .ratio-medium {
+        background: #F4B400;
+        color: #3A2C00;
+        font-weight: 700;
+    }
+
+    .ratio-low {
+        background: #A8D5BA;
+        color: #154734;
+        font-weight: 700;
+    }
+
+    .oport-good {
+        background: #DDF2D8;
+        color: #134E2A;
+        font-weight: 700;
+    }
+
+    .oport-mid {
+        background: #FDF1C5;
+        color: #7A5C00;
+        font-weight: 700;
+    }
+
+    .oport-low {
+        background: #FDE2E2;
+        color: #991B1B;
+        font-weight: 700;
+    }
+
+    .map-tooltip {
+        position: absolute;
+        z-index: 10;
+        min-width: 180px;
+        pointer-events: none;
+        border-radius: 6px;
+        background: rgba(15, 23, 42, 0.95);
+        color: #fff;
+        padding: 8px 10px;
+        font-size: 12px;
+        line-height: 1.35;
+        opacity: 0;
+        transition: opacity .15s ease;
+    }
+
+    .map-tooltip.visible {
+        opacity: 1;
+    }
+
+    @media print {
+        .topbar,
+        .footer,
+        .gov-top-strip,
+        .no-print,
+        .sticky {
+            display: none !important;
+        }
+    }
+</style>
+
+<script>
+(() => {
+    const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII'];
+    const RISARALDA_MUNICIPIOS = [
+        'Apía', 'Balboa', 'Belén de Umbría', 'Dosquebradas', 'Guática', 'La Celia', 'La Virginia',
+        'Marsella', 'Mistrató', 'Pereira', 'Pueblo Rico', 'Quinchía', 'Santa Rosa de Cabal', 'Santuario'
+    ];
+    const RISARALDA_NV_REF = {
+        APIA: 15,
+        BALBOA: 6,
+        'BELEN DE UMBRIA': 15,
+        DOSQUEBRADAS: 258,
+        GUATICA: 9,
+        'LA CELIA': 11,
+        'LA VIRGINIA': 30,
+        MARSELLA: 13,
+        MISTRATO: 38,
+        PEREIRA: 485,
+        'PUEBLO RICO': 66,
+        QUINCHIA: 31,
+        'SANTA ROSA DE CABAL': 87,
+        SANTUARIO: 11
+    };
+
+    const initialContentRaw = {{ (bulletin.content if bulletin else '')|tojson }};
+    const FALLBACK_TEXTS = {
+        intro: 'La vigilancia del evento se analiza de manera acumulada para orientar decisiones de salud pública en Risaralda, con énfasis en comportamiento temporal, territorial, sociodemográfico y clínico.',
+        methods: 'Se realizó análisis descriptivo con base en los casos depurados de SIVIGILA para el periodo seleccionado, incluyendo distribución temporal, territorial y variables clínicas y sociodemográficas.',
+        behavior: 'La tendencia semanal muestra el comportamiento acumulado del evento en el departamento y su variación frente al año previo.',
+        socio: 'Las variables sociodemográficas permiten identificar grupos de mayor vulnerabilidad para priorizar intervenciones diferenciales en salud pública.',
+        clinical: 'Las variables clínicas evidencian los patrones de presentación del evento y orientan acciones de oportunidad diagnóstica y manejo institucional.',
+        indicators: 'Los indicadores territoriales y de oportunidad permiten focalizar seguimiento por municipio y fortalecer los procesos de notificación.',
+        obs: {{ ('Boletín institucional de trabajo. Ajustar conclusiones según validación epidemiológica del periodo.' if not bulletin else '')|tojson }}
+    };
+
+    const state = {
+        cleanedData: [],
+        allRows: [],
+        selectedYear: new Date().getFullYear(),
+        selectedWeek: null,
+        hasManualWeekSelection: false,
+        dataTimestamp: null,
+        geojson: null,
+        charts: {},
+        useAutoNarrative: true
+    };
+
+    const els = {
+        form: document.getElementById('bulletin-editor-form'),
+        formTitle: document.getElementById('form-title'),
+        formStatus: document.getElementById('form-status'),
+        formContent: document.getElementById('form-content'),
+        formEventCode: document.getElementById('form-event-code'),
+        titleInput: document.getElementById('title-input'),
+        eventSelect: document.getElementById('event-select'),
+        weekSelect: document.getElementById('week-select'),
+        introMain: document.getElementById('intro-main'),
+        methodsMain: document.getElementById('methods-main'),
+        behaviorMain: document.getElementById('behavior-main'),
+        socioMain: document.getElementById('socio-main'),
+        clinicalMain: document.getElementById('clinical-main'),
+        indicatorMain: document.getElementById('indicator-main'),
+        obsMain: document.getElementById('obs-main'),
+        obsSide: document.getElementById('obs-side'),
+        syncStatus: document.getElementById('sync-status')
+    };
+
+    function normalizeText(value) {
+        return String(value || '')
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toUpperCase();
+    }
+
+    function toNumber(value) {
+        if (value === null || value === undefined || value === '') return null;
+        const num = Number(String(value).replace(',', '.'));
+        return Number.isFinite(num) ? num : null;
+    }
+
+    function formatNumber(value, decimals = 0) {
+        const num = Number(value || 0);
+        if (!Number.isFinite(num)) return '0';
+        return num.toLocaleString('es-CO', {
+            minimumFractionDigits: decimals,
+            maximumFractionDigits: decimals
+        });
+    }
+
+    function percent(part, total, decimals = 1) {
+        if (!Number.isFinite(Number(total)) || Number(total) <= 0) return 0;
+        return Number(((Number(part || 0) * 100) / Number(total)).toFixed(decimals));
+    }
+
+    function boolLike(value) {
+        const txt = normalizeText(value);
+        return ['SI', 'S', '1', 'TRUE', 'VERDADERO', 'YES', 'Y', 'X'].includes(txt);
+    }
+
+    function getValue(row, keys) {
+        for (const key of keys) {
+            if (Object.prototype.hasOwnProperty.call(row, key)) {
+                const value = row[key];
+                if (value !== null && value !== undefined && String(value).trim() !== '') {
+                    return value;
+                }
+            }
+        }
+        return '';
+    }
+
+    function parseDateLike(value) {
+        const txt = String(value || '').trim();
+        if (!txt) return null;
+
+        if (/^\d{4}-\d{2}-\d{2}/.test(txt)) {
+            const date = new Date(txt);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        const m = txt.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if (!m) return null;
+        const day = Number(m[1]);
+        const month = Number(m[2]);
+        const yearRaw = Number(m[3]);
+        const year = yearRaw < 100 ? 2000 + yearRaw : yearRaw;
+        const date = new Date(year, month - 1, day);
+        return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function dayDiff(dateA, dateB) {
+        if (!(dateA instanceof Date) || !(dateB instanceof Date)) return null;
+        const ms = Math.abs(dateB.getTime() - dateA.getTime());
+        return Math.floor(ms / (24 * 60 * 60 * 1000));
+    }
+
+    function riskColor(razon) {
+        if (razon === null || !Number.isFinite(Number(razon))) return '#D1D5DB';
+        const value = Number(razon);
+        if (value > 150) return '#8B1A1A';
+        if (value >= 70) return '#F4B400';
+        return '#A8D5BA';
+    }
+
+    function riskClass(razon) {
+        if (razon === null || !Number.isFinite(Number(razon))) return '';
+        const value = Number(razon);
+        if (value > 150) return 'ratio-high';
+        if (value >= 70) return 'ratio-medium';
+        return 'ratio-low';
+    }
+
+    function opportunityClass(valuePct) {
+        if (valuePct > 90) return 'oport-good';
+        if (valuePct >= 70) return 'oport-mid';
+        return 'oport-low';
+    }
+
+    function destroyChart(id) {
+        if (state.charts[id]) {
+            state.charts[id].destroy();
+            delete state.charts[id];
+        }
+    }
+
+    function renderChart(id, config) {
+        const canvas = document.getElementById(id);
+        if (!canvas || !window.Chart) return;
+        destroyChart(id);
+        state.charts[id] = new Chart(canvas.getContext('2d'), {
+            ...config,
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        labels: {
+                            boxWidth: 12,
+                            font: { size: 11 }
+                        }
+                    }
+                },
+                ...(config.options || {})
+            }
+        });
+    }
+
+    function countBy(rows, mapper) {
+        const map = new Map();
+        rows.forEach((row) => {
+            const key = String(mapper(row) || 'SIN DATO').trim() || 'SIN DATO';
+            map.set(key, (map.get(key) || 0) + 1);
+        });
+        return [...map.entries()].map(([label, value]) => ({ label, value }));
+    }
+
+    function getCurrentEventCode() {
+        const fromSelect = Number(els.eventSelect && els.eventSelect.value ? els.eventSelect.value : 0);
+        const fromHidden = Number(els.formEventCode && els.formEventCode.value ? els.formEventCode.value : 0);
+        return fromSelect || fromHidden || 549;
+    }
+
+    function getSelectedEventName() {
+        const opt = els.eventSelect ? els.eventSelect.options[els.eventSelect.selectedIndex] : null;
+        if (!opt) return 'Morbilidad Materna Extrema';
+        const txt = opt.textContent || '';
+        const parts = txt.split(' - ');
+        return parts.length > 1 ? parts.slice(1).join(' - ') : txt;
+    }
+
+    function parseNarrativeFromContent(content) {
+        const text = String(content || '').trim();
+        if (!text) return {};
+
+        if (text.startsWith('{') && text.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(text);
+                if (parsed && typeof parsed === 'object') {
+                    return {
+                        intro: String(parsed.intro || '').trim(),
+                        methods: String(parsed.methods || '').trim(),
+                        behavior: String(parsed.behavior || '').trim(),
+                        socio: String(parsed.socio || '').trim(),
+                        clinical: String(parsed.clinical || '').trim(),
+                        indicators: String(parsed.indicators || '').trim(),
+                        obs: String(parsed.obs || '').trim()
+                    };
+                }
+            } catch (_) {
+                // Continúa con parseo de texto plano
+            }
+        }
+
+        const sectionPatterns = [
+            { key: 'intro', label: 'Introducci[oó]n', next: ['Materiales y m[eé]todos', 'Comportamiento en Risaralda', 'Variables sociodemogr[aá]ficas', 'Variables cl[ií]nicas', 'Indicadores de inter[eé]s epidemiol[oó]gico', 'Observaciones finales'] },
+            { key: 'methods', label: 'Materiales y m[eé]todos', next: ['Comportamiento en Risaralda', 'Variables sociodemogr[aá]ficas', 'Variables cl[ií]nicas', 'Indicadores de inter[eé]s epidemiol[oó]gico', 'Observaciones finales'] },
+            { key: 'behavior', label: 'Comportamiento en Risaralda', next: ['Variables sociodemogr[aá]ficas', 'Variables cl[ií]nicas', 'Indicadores de inter[eé]s epidemiol[oó]gico', 'Observaciones finales'] },
+            { key: 'socio', label: 'Variables sociodemogr[aá]ficas', next: ['Variables cl[ií]nicas', 'Indicadores de inter[eé]s epidemiol[oó]gico', 'Observaciones finales'] },
+            { key: 'clinical', label: 'Variables cl[ií]nicas', next: ['Indicadores de inter[eé]s epidemiol[oó]gico', 'Observaciones finales'] },
+            { key: 'indicators', label: 'Indicadores de inter[eé]s epidemiol[oó]gico', next: ['Observaciones finales'] },
+            { key: 'obs', label: 'Observaciones finales', next: [] }
+        ];
+
+        const out = {};
+        sectionPatterns.forEach((item) => {
+            const nextPattern = item.next.length ? `(?:\\n(?:${item.next.join('|')})\\s*:|$)` : '$';
+            const regex = new RegExp(`${item.label}\\s*:\\s*([\\s\\S]*?)${nextPattern}`, 'i');
+            const m = text.match(regex);
+            if (m && m[1]) {
+                out[item.key] = String(m[1]).trim();
+            }
+        });
+
+        if (Object.keys(out).length) return out;
+
+        return { intro: text };
+    }
+
+    function getNarrativeFields() {
+        return {
+            intro: String(els.introMain?.value || '').trim(),
+            methods: String(els.methodsMain?.value || '').trim(),
+            behavior: String(els.behaviorMain?.value || '').trim(),
+            socio: String(els.socioMain?.value || '').trim(),
+            clinical: String(els.clinicalMain?.value || '').trim(),
+            indicators: String(els.indicatorMain?.value || '').trim(),
+            obs: String(els.obsMain?.value || '').trim()
+        };
+    }
+
+    function setNarrativeFields(values) {
+        if (els.introMain) els.introMain.value = String(values.intro || '').trim();
+        if (els.methodsMain) els.methodsMain.value = String(values.methods || '').trim();
+        if (els.behaviorMain) els.behaviorMain.value = String(values.behavior || '').trim();
+        if (els.socioMain) els.socioMain.value = String(values.socio || '').trim();
+        if (els.clinicalMain) els.clinicalMain.value = String(values.clinical || '').trim();
+        if (els.indicatorMain) els.indicatorMain.value = String(values.indicators || '').trim();
+        if (els.obsMain) els.obsMain.value = String(values.obs || '').trim();
+        if (els.obsSide) els.obsSide.value = String(values.obs || '').trim();
+    }
+
+    function buildOfficialNarrative(rows, summary, opportunity, topCause) {
+        const year = state.selectedYear;
+        const week = state.selectedWeek;
+        const period = Math.max(1, Math.ceil(week / 4));
+        const eventName = getSelectedEventName();
+        const totalCases = rows.length;
+        const reason = summary.total.razon;
+        const hosp = rows.length ? ((rows.filter((r) => boolLike(r.pac_hos)).length * 100) / rows.length) : 0;
+
+        const topMunicipios = summary.filas
+            .filter((item) => item.casos > 0)
+            .slice(0, 3)
+            .map((item) => `${item.municipio} (${item.casos})`);
+
+        const topText = topMunicipios.length
+            ? topMunicipios.join(', ')
+            : 'no se registran municipios con casos en el acumulado del periodo';
+
+        const razonTxt = reason === null ? 'no disponible por ausencia de NV en el filtro actual' : `${formatNumber(reason, 1)} por 1.000 NV`;
+
+        const pOport = formatNumber(opportunity.totalPct || 0, 1);
+        const causeTxt = topCause || 'sin categoría predominante para el periodo';
+
+        return {
+            intro: [
+            `Para el Periodo Epidemiologico ${ROMAN[period]} de la Semana Epidemiologica ${String(week).padStart(2, '0')} de ${year}, el evento ${eventName} registra ${formatNumber(totalCases, 0)} casos acumulados en Risaralda.`,
+            `La razon departamental estimada es ${razonTxt}, con un porcentaje de hospitalizacion de ${hosp.toFixed(1)}%.`,
+            `La mayor concentracion de casos se observa en ${topText}.`,
+            'Este comportamiento orienta el fortalecimiento de acciones de vigilancia intensificada, oportunidad diagnostica y respuesta institucional.'
+            ].join(' '),
+            methods: `Se realizó análisis descriptivo de los casos notificados al sistema de vigilancia, con corte en la Semana Epidemiológica ${String(week).padStart(2, '0')} de ${year}, incluyendo variables temporales, territoriales, sociodemográficas y clínicas del evento ${eventName}.`,
+            behavior: `El comportamiento acumulado por semana evidencia ${formatNumber(totalCases, 0)} casos en el año ${year}, con variación frente al año previo y concentración en ${topText}.`,
+            socio: 'La distribución sociodemográfica muestra mayor carga en grupos etarios y condiciones de vulnerabilidad específicas, lo que orienta acciones diferenciales de promoción y prevención.',
+            clinical: `Entre las variables clínicas se destaca como principal agrupación: ${causeTxt}. Se recomienda seguimiento de oportunidad diagnóstica y de notificación clínica.`,
+            indicators: `La oportunidad de notificación departamental se estimó en ${pOport}%. Se prioriza el monitoreo por municipio de mayor razón y el seguimiento institucional a reportes inoportunos por UPGD.`,
+            obs: [
+            'Se recomienda mantener seguimiento semanal de la tendencia, priorizar municipios de mayor razon y reforzar la calidad del dato en variables clinicas y sociodemograficas.',
+            'Las conclusiones deben validarse en mesa tecnica territorial antes de su difusion oficial.'
+            ].join(' ')
+        };
+    }
+
+    async function fetchData() {
+        const eventCode = getCurrentEventCode();
+        let response;
+        let payload;
+
+        if (eventCode === 549) {
+            response = await fetch(`/api/datos-evento-549?ts=${Date.now()}`, { cache: 'no-store' });
+            if (!response.ok) throw new Error('No fue posible cargar datos depurados del evento 549');
+            payload = await response.json();
+            state.cleanedData = Array.isArray(payload.cleanedData) ? payload.cleanedData : [];
+            state.allRows = state.cleanedData.slice();
+            state.dataTimestamp = payload.archivo_modificado || null;
+            window.cleanedData = state.cleanedData;
+            return;
+        }
+
+        response = await fetch(`/api/dashboard-data?evento=${eventCode}&ts=${Date.now()}`, { cache: 'no-store' });
+        if (!response.ok) throw new Error('No fue posible cargar datos del evento seleccionado');
+        payload = await response.json();
+        const fallbackRows = Array.isArray(payload.cleanedData)
+            ? payload.cleanedData
+            : (Array.isArray(payload.rows) ? payload.rows : (Array.isArray(payload.data) ? payload.data : []));
+        state.cleanedData = fallbackRows;
+        state.allRows = fallbackRows.slice();
+        state.dataTimestamp = payload.archivo_modificado || null;
+        window.cleanedData = state.cleanedData;
+    }
+
+    function fillWeekSelector(rows) {
+        const years = rows
+            .map((row) => Math.trunc(toNumber(row.a_o) || 0))
+            .filter((y) => y > 1900);
+        state.selectedYear = years.length ? Math.max(...years) : new Date().getFullYear();
+
+        const weeks = rows
+            .filter((row) => Math.trunc(toNumber(row.a_o) || state.selectedYear) === state.selectedYear)
+            .map((row) => Math.trunc(toNumber(row.semana) || 0))
+            .filter((w) => w > 0 && w <= 53);
+
+        const maxWeek = weeks.length ? Math.max(...weeks) : 8;
+        const previousWeek = Number(state.selectedWeek || 0);
+        state.selectedWeek = (!state.hasManualWeekSelection || previousWeek <= 0 || previousWeek > maxWeek)
+            ? maxWeek
+            : previousWeek;
+
+        if (!els.weekSelect) return;
+        els.weekSelect.innerHTML = '';
+        for (let w = 1; w <= maxWeek; w += 1) {
+            const period = Math.max(1, Math.ceil(w / 4));
+            const option = document.createElement('option');
+            option.value = String(w);
+            option.textContent = `Periodo ${ROMAN[period]} - Semana ${String(w).padStart(2, '0')} de ${state.selectedYear}`;
+            if (w === state.selectedWeek) option.selected = true;
+            els.weekSelect.appendChild(option);
+        }
+    }
+
+    function getFilteredRows() {
+        return state.allRows.filter((row) => {
+            const y = Math.trunc(toNumber(row.a_o) || state.selectedYear);
+            const w = Math.trunc(toNumber(row.semana) || 0);
+            if (w <= 0) return false;
+            return y === state.selectedYear && w <= Number(state.selectedWeek || w);
+        });
+    }
+
+    function getMunicipio(row) {
+        return String(getValue(row, ['nmun_resi', 'municipio', 'municipio_residencia']) || '').trim();
+    }
+
+    function getUpgd(row) {
+        return String(getValue(row, ['nom_upgd', 'upgd', 'nombre_upgd', 'institucion', 'ips', 'upgd_notifica']) || 'SIN DATO').trim();
+    }
+
+    function getNotificationDelay(row) {
+        const numericKeys = ['dias_notificacion', 'dias_oportunidad', 'dias_retraso', 'dias_retraso_notificacion', 'dias_notif'];
+        for (const key of numericKeys) {
+            const value = toNumber(getValue(row, [key]));
+            if (value !== null && value >= 0) return value;
+        }
+
+        const datePairs = [
+            ['fec_evento', 'fec_not'],
+            ['fecha_evento', 'fecha_notificacion'],
+            ['fec_cons', 'fec_not'],
+            ['fecha_consulta', 'fecha_notificacion'],
+            ['f_evento', 'f_notif']
+        ];
+
+        for (const [startKey, endKey] of datePairs) {
+            const startDate = parseDateLike(getValue(row, [startKey]));
+            const endDate = parseDateLike(getValue(row, [endKey]));
+            const diff = dayDiff(startDate, endDate);
+            if (diff !== null) return diff;
+        }
+
+        return null;
+    }
+
+    function isRowOportuno(row) {
+        const direct = getValue(row, ['oportuno', 'notif_oportuna', 'notificacion_oportuna', 'oportunidad']);
+        if (String(direct).trim() !== '') return boolLike(direct);
+        const delay = getNotificationDelay(row);
+        if (delay === null) return false;
+        return delay <= 1;
+    }
+
+    function isDeathOutcome(row) {
+        const fechaDefuncion = String(getValue(row, ['fec_def', 'fecha_defuncion'])).trim();
+        if (fechaDefuncion) return true;
+
+        const condicionFinal = normalizeText(getValue(row, ['con_fin', 'condicion_final', 'condicion_egreso', 'resultado_final']));
+        return condicionFinal.includes('MUER') || condicionFinal.includes('FALL') || condicionFinal.includes('DEFUN');
+    }
+
+    function buildSummaryMunicipal(rows) {
+        const summary = new Map();
+        RISARALDA_MUNICIPIOS.forEach((municipio) => {
+            summary.set(normalizeText(municipio), { municipio, casos: 0, nv: 0, hasNv: false });
+        });
+
+        rows.forEach((row) => {
+            const mun = String(row.nmun_resi || '').trim();
+            const key = normalizeText(mun);
+            if (!summary.has(key)) return;
+            const item = summary.get(key);
+            item.casos += 1;
+            const nv = toNumber(row.num_vivos);
+            if (nv !== null) {
+                item.hasNv = true;
+                item.nv += nv;
+            }
+        });
+
+        const filas = [...summary.entries()].map(([key, item]) => {
+            const nv = item.hasNv ? item.nv : (RISARALDA_NV_REF[key] ?? null);
+            const razon = nv === null ? null : (nv > 0 ? (item.casos / nv) * 1000 : 0);
+            return {
+                municipio: item.municipio,
+                casos: item.casos,
+                nv,
+                razon
+            };
+        }).sort((a, b) => {
+            const ra = Number.isFinite(Number(a.razon)) ? Number(a.razon) : -1;
+            const rb = Number.isFinite(Number(b.razon)) ? Number(b.razon) : -1;
+            if (rb !== ra) return rb - ra;
+            return b.casos - a.casos;
+        });
+
+        const totalCasos = filas.reduce((acc, row) => acc + row.casos, 0);
+        const totalNv = filas.reduce((acc, row) => acc + Number(row.nv || 0), 0);
+        const totalRazon = totalNv > 0 ? (totalCasos / totalNv) * 1000 : null;
+
+        return {
+            filas,
+            total: {
+                municipio: 'Risaralda',
+                casos: totalCasos,
+                nv: totalNv || null,
+                razon: totalRazon
+            },
+            hasRawNv: rows.some((row) => toNumber(row.num_vivos) !== null)
+        };
+    }
+
+    function renderMunicipalTable(summary) {
+        const tbody = document.getElementById('tabla-municipio-body');
+        const tfoot = document.getElementById('tabla-municipio-total');
+        const warning = document.getElementById('nv-warning');
+        if (!tbody || !tfoot) return;
+
+        tbody.innerHTML = '';
+        tfoot.innerHTML = '';
+
+        summary.filas.forEach((row) => {
+            const ratioTxt = row.razon === null ? '-' : formatNumber(row.razon, 1);
+            tbody.innerHTML += `
+                <tr>
+                    <td class="border border-slate-300 px-2 py-1">${row.municipio}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(row.casos, 0)}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${row.nv === null ? '-' : formatNumber(row.nv, 0)}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center ${riskClass(row.razon)}">${ratioTxt}</td>
+                </tr>
+            `;
+        });
+
+        const total = summary.total;
+        tfoot.innerHTML = `
+            <tr class="bg-slate-100 font-semibold">
+                <td class="border border-slate-300 px-2 py-1">Risaralda</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(total.casos, 0)}</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${total.nv === null ? '-' : formatNumber(total.nv, 0)}</td>
+                <td class="border border-slate-300 px-2 py-1 text-center ${riskClass(total.razon)}">${total.razon === null ? '-' : formatNumber(total.razon, 1)}</td>
+            </tr>
+        `;
+
+        if (warning) {
+            if (summary.hasRawNv) {
+                warning.classList.add('hidden');
+                warning.textContent = '';
+            } else {
+                warning.classList.remove('hidden');
+                warning.textContent = 'No se encontró la columna num_vivos en cleanedData para el filtro actual. Se usan NV de referencia para conservar la tabla oficial.';
+            }
+        }
+    }
+
+    function buildOpportunitySummary(rows) {
+        const map = new Map();
+        RISARALDA_MUNICIPIOS.forEach((mun) => {
+            map.set(normalizeText(mun), { municipio: mun, total: 0, oportunos: 0 });
+        });
+
+        rows.forEach((row) => {
+            const municipio = getMunicipio(row);
+            const key = normalizeText(municipio);
+            if (!map.has(key)) return;
+            const item = map.get(key);
+            item.total += 1;
+            if (isRowOportuno(row)) item.oportunos += 1;
+        });
+
+        const filas = [...map.values()].map((item) => {
+            const pct = item.total > 0 ? percent(item.oportunos, item.total, 1) : 0;
+            return {
+                municipio: item.municipio,
+                oportunos: item.oportunos,
+                total: item.total,
+                pct
+            };
+        }).sort((a, b) => {
+            if (b.pct !== a.pct) return b.pct - a.pct;
+            return b.total - a.total;
+        });
+
+        const totalTotal = filas.reduce((acc, item) => acc + item.total, 0);
+        const totalOp = filas.reduce((acc, item) => acc + item.oportunos, 0);
+        return {
+            filas,
+            totalOportunos: totalOp,
+            totalRegistros: totalTotal,
+            totalPct: totalTotal > 0 ? percent(totalOp, totalTotal, 1) : 0
+        };
+    }
+
+    function renderOpportunityTable(summary) {
+        const tbody = document.getElementById('tabla-oportunidad-body');
+        const tfoot = document.getElementById('tabla-oportunidad-total');
+        if (!tbody || !tfoot) return;
+        tbody.innerHTML = '';
+        tfoot.innerHTML = '';
+
+        summary.filas.forEach((item) => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="border border-slate-300 px-2 py-1">${item.municipio}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(item.oportunos, 0)}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center ${opportunityClass(item.pct)}">${formatNumber(item.pct, 1)}%</td>
+                </tr>
+            `;
+        });
+
+        tfoot.innerHTML = `
+            <tr class="bg-slate-100 font-semibold">
+                <td class="border border-slate-300 px-2 py-1">Risaralda</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(summary.totalOportunos, 0)}</td>
+                <td class="border border-slate-300 px-2 py-1 text-center ${opportunityClass(summary.totalPct)}">${formatNumber(summary.totalPct, 1)}%</td>
+            </tr>
+        `;
+    }
+
+    function buildUpgdInop(rows) {
+        const map = new Map();
+        rows.forEach((row) => {
+            if (isRowOportuno(row)) return;
+            const name = getUpgd(row);
+            map.set(name, (map.get(name) || 0) + 1);
+        });
+
+        const filas = [...map.entries()]
+            .map(([upgd, reportes]) => ({ upgd, reportes }))
+            .sort((a, b) => b.reportes - a.reportes);
+
+        return {
+            filas,
+            total: filas.reduce((acc, item) => acc + item.reportes, 0)
+        };
+    }
+
+    function renderUpgdTable(summary) {
+        const tbody = document.getElementById('tabla-upgd-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        if (!summary.filas.length) {
+            tbody.innerHTML = '<tr><td class="border border-slate-300 px-2 py-1">Sin reportes inoportunos para el filtro actual</td><td class="border border-slate-300 px-2 py-1 text-center">0</td></tr>';
+            return;
+        }
+
+        summary.filas.forEach((item) => {
+            tbody.innerHTML += `
+                <tr>
+                    <td class="border border-slate-300 px-2 py-1">${item.upgd}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(item.reportes, 0)}</td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML += `
+            <tr class="bg-slate-100 font-semibold">
+                <td class="border border-slate-300 px-2 py-1">TOTAL</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(summary.total, 0)}</td>
+            </tr>
+        `;
+    }
+
+    async function loadGeojson() {
+        if (state.geojson) return state.geojson;
+        const response = await fetch('/api/geojson-risaralda?ts=' + Date.now(), { cache: 'no-store' });
+        if (!response.ok) throw new Error('Croquis municipal no disponible');
+        const payload = await response.json();
+        if (!payload || !payload.geojson || !Array.isArray(payload.geojson.features)) {
+            throw new Error('GeoJSON inválido');
+        }
+        state.geojson = payload.geojson;
+        return state.geojson;
+    }
+
+    function flattenCoords(geometry) {
+        if (!geometry || !geometry.type || !geometry.coordinates) return [];
+        if (geometry.type === 'Polygon') return [geometry.coordinates];
+        if (geometry.type === 'MultiPolygon') return geometry.coordinates;
+        return [];
+    }
+
+    function computeBounds(features) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        features.forEach((feature) => {
+            flattenCoords(feature.geometry).forEach((polygon) => {
+                polygon.forEach((ring) => {
+                    ring.forEach((coord) => {
+                        minX = Math.min(minX, coord[0]);
+                        minY = Math.min(minY, coord[1]);
+                        maxX = Math.max(maxX, coord[0]);
+                        maxY = Math.max(maxY, coord[1]);
+                    });
+                });
+            });
+        });
+
+        return { minX, minY, maxX, maxY, width: Math.max(0.00001, maxX - minX), height: Math.max(0.00001, maxY - minY) };
+    }
+
+    function project(coord, bounds, width, height, pad) {
+        const x = pad + ((coord[0] - bounds.minX) / bounds.width) * (width - (pad * 2));
+        const y = pad + ((bounds.maxY - coord[1]) / bounds.height) * (height - (pad * 2));
+        return [x, y];
+    }
+
+    function polygonPathD(polygons, bounds, width, height, pad) {
+        const parts = [];
+        polygons.forEach((polygon) => {
+            polygon.forEach((ring) => {
+                if (!Array.isArray(ring) || !ring.length) return;
+                const projected = ring.map((coord) => project(coord, bounds, width, height, pad));
+                const first = projected[0];
+                if (!first) return;
+                const cmds = [`M ${first[0].toFixed(2)} ${first[1].toFixed(2)}`];
+                for (let i = 1; i < projected.length; i += 1) {
+                    cmds.push(`L ${projected[i][0].toFixed(2)} ${projected[i][1].toFixed(2)}`);
+                }
+                cmds.push('Z');
+                parts.push(cmds.join(' '));
+            });
+        });
+        return parts.join(' ');
+    }
+
+    function renderMap(summary) {
+        const container = document.getElementById('mapa-risaralda');
+        if (!container) return;
+        container.innerHTML = '';
+
+        loadGeojson()
+            .then((geojson) => {
+                const width = 840;
+                const height = 500;
+                const pad = 16;
+                const features = geojson.features;
+                const bounds = computeBounds(features);
+                const summaryMap = new Map(summary.filas.map((row) => [normalizeText(row.municipio), row]));
+
+                const svgNS = 'http://www.w3.org/2000/svg';
+                const svg = document.createElementNS(svgNS, 'svg');
+                svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+                svg.setAttribute('role', 'img');
+                svg.classList.add('h-full', 'w-full');
+
+                let tooltip = container.querySelector('.map-tooltip');
+                if (!tooltip) {
+                    tooltip = document.createElement('div');
+                    tooltip.className = 'map-tooltip';
+                    container.appendChild(tooltip);
+                }
+
+                features.forEach((feature) => {
+                    const props = feature.properties || {};
+                    const name = String(props.MpNombre || props.mpnombre || props.municipio || props.nombre || 'SIN DATO').trim();
+                    const stats = summaryMap.get(normalizeText(name)) || { municipio: name, casos: 0, nv: null, razon: null };
+                    const d = polygonPathD(flattenCoords(feature.geometry), bounds, width, height, pad);
+                    if (!d) return;
+
+                    const path = document.createElementNS(svgNS, 'path');
+                    path.setAttribute('d', d);
+                    path.setAttribute('fill', riskColor(stats.razon));
+                    path.setAttribute('stroke', '#1f2937');
+                    path.setAttribute('stroke-width', '1');
+                    path.setAttribute('tabindex', '0');
+
+                    const info = `${name}<br>Casos: <strong>${formatNumber(stats.casos, 0)}</strong><br>NV: <strong>${stats.nv === null ? '-' : formatNumber(stats.nv, 0)}</strong><br>Razón: <strong>${stats.razon === null ? '-' : formatNumber(stats.razon, 1)}</strong>`;
+
+                    const show = (event) => {
+                        tooltip.innerHTML = info;
+                        tooltip.classList.add('visible');
+                        const rect = container.getBoundingClientRect();
+                        const x = (event.clientX - rect.left) + 12;
+                        const y = (event.clientY - rect.top) + 12;
+                        tooltip.style.left = `${x}px`;
+                        tooltip.style.top = `${y}px`;
+                    };
+
+                    path.addEventListener('mousemove', show);
+                    path.addEventListener('mouseenter', show);
+                    path.addEventListener('mouseleave', () => tooltip.classList.remove('visible'));
+                    path.addEventListener('focus', () => tooltip.classList.add('visible'));
+                    path.addEventListener('blur', () => tooltip.classList.remove('visible'));
+
+                    svg.appendChild(path);
+                });
+
+                container.appendChild(svg);
+            })
+            .catch((error) => {
+                container.innerHTML = `<div class="p-3 text-sm text-red-700">${error.message}</div>`;
+            });
+    }
+
+    function renderAgeTable(rows, total) {
+        const tbody = document.getElementById('tabla-edad-body');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+
+        const bins = [
+            { label: '15-19', min: 15, max: 19 },
+            { label: '20-24', min: 20, max: 24 },
+            { label: '25-29', min: 25, max: 29 },
+            { label: '30-34', min: 30, max: 34 },
+            { label: '35-39', min: 35, max: 39 },
+            { label: '40+', min: 40, max: 90 }
+        ];
+
+        let totalCases = 0;
+        let totalNv = 0;
+
+        bins.forEach((bin) => {
+            const inBin = rows.filter((row) => {
+                const age = toNumber(row.edad);
+                return age !== null && age >= bin.min && age <= bin.max;
+            });
+
+            const casos = inBin.length;
+            const nvSum = inBin.reduce((acc, row) => acc + Number(toNumber(row.num_vivos) || 0), 0);
+            const hasNv = inBin.some((row) => toNumber(row.num_vivos) !== null);
+            const razon = hasNv && nvSum > 0 ? (casos / nvSum) * 1000 : null;
+            totalCases += casos;
+            totalNv += nvSum;
+
+            const pct = total > 0 ? ((casos * 100) / total).toFixed(1) : '0.0';
+            tbody.innerHTML += `
+                <tr>
+                    <td class="border border-slate-300 px-2 py-1">${bin.label}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(casos, 0)}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${pct}%</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${hasNv ? formatNumber(nvSum, 0) : '-'}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${razon === null ? '-' : formatNumber(razon, 1)}</td>
+                </tr>
+            `;
+        });
+
+        const totalRazon = totalNv > 0 ? (totalCases / totalNv) * 1000 : null;
+        tbody.innerHTML += `
+            <tr class="bg-slate-100 font-semibold">
+                <td class="border border-slate-300 px-2 py-1">TOTAL</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(totalCases, 0)}</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">100.0%</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${totalNv > 0 ? formatNumber(totalNv, 0) : '-'}</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${totalRazon === null ? '-' : formatNumber(totalRazon, 1)}</td>
+            </tr>
+        `;
+    }
+
+    function renderVulnerables(rows) {
+        const total = rows.length || 1;
+        const byEtnia = (needleList) => rows.filter((row) => {
+            const value = normalizeText(getValue(row, ['per_etn', 'etnia', 'pertenencia_etnica']));
+            return needleList.some((needle) => value.includes(needle));
+        }).length;
+
+        const indigena = byEtnia(['INDIGENA']);
+        const afro = byEtnia(['AFRO', 'NEGRA', 'PALEN', 'RAIZAL']);
+        const migrante = rows.filter((row) => {
+            const direct = getValue(row, ['migrante', 'es_migrante']);
+            if (String(direct).trim() !== '') return boolLike(direct);
+            const pais = normalizeText(getValue(row, ['pais_origen', 'nacionalidad']));
+            return pais && !pais.includes('COLOMB');
+        }).length;
+        const desplazado = rows.filter((row) => boolLike(getValue(row, ['desplazado', 'victima_desplazamiento']))).length;
+        const hospitalizados = rows.filter((row) => boolLike(getValue(row, ['pac_hos', 'hospitalizado']))).length;
+
+        const setPct = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = `${formatNumber(percent(value, total, 1), 1)}%`;
+        };
+
+        setPct('vul-indigena', indigena);
+        setPct('vul-afro', afro);
+        setPct('vul-migrante', migrante);
+        setPct('vul-desplazado', desplazado);
+        setPct('vul-hosp', hospitalizados);
+    }
+
+    function renderClinicalTables(rows) {
+        const causasBody = document.getElementById('tabla-causas-body');
+        const especBody = document.getElementById('tabla-especifica-body');
+        if (!causasBody || !especBody) return { topCause: '' };
+
+        const total = rows.length || 1;
+        const causas = countBy(rows, (row) => getValue(row, ['caus_agrup', 'causa_agrupada', 'grupo_causa']))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 12);
+        const especifica = countBy(rows, (row) => getValue(row, ['enf_especifica', 'causa_especifica', 'diag_princ', 'diagnostico']))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 12);
+
+        causasBody.innerHTML = '';
+        causas.forEach((item) => {
+            causasBody.innerHTML += `
+                <tr>
+                    <td class="border border-slate-300 px-2 py-1">${item.label}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(item.value, 0)}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(percent(item.value, total, 1), 1)}%</td>
+                </tr>
+            `;
+        });
+        causasBody.innerHTML += `
+            <tr class="bg-slate-100 font-semibold">
+                <td class="border border-slate-300 px-2 py-1">TOTAL</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(rows.length, 0)}</td>
+                <td class="border border-slate-300 px-2 py-1 text-center">100.0%</td>
+            </tr>
+        `;
+
+        especBody.innerHTML = '';
+        especifica.forEach((item) => {
+            especBody.innerHTML += `
+                <tr>
+                    <td class="border border-slate-300 px-2 py-1">${item.label}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(item.value, 0)}</td>
+                    <td class="border border-slate-300 px-2 py-1 text-center">${formatNumber(percent(item.value, total, 1), 1)}%</td>
+                </tr>
+            `;
+        });
+        if (!especifica.length) {
+            especBody.innerHTML = '<tr><td class="border border-slate-300 px-2 py-1">Sin dato</td><td class="border border-slate-300 px-2 py-1 text-center">0</td><td class="border border-slate-300 px-2 py-1 text-center">0.0%</td></tr>';
+        }
+
+        return { topCause: causas.length ? causas[0].label : '' };
+    }
+
+    function renderPeriodHeader(rows, summary) {
+        const year = state.selectedYear;
+        const week = state.selectedWeek;
+        const period = Math.max(1, Math.ceil(week / 4));
+
+        const prevRows = state.allRows.filter((row) => {
+            const y = Math.trunc(toNumber(row.a_o) || year);
+            const w = Math.trunc(toNumber(row.semana) || 0);
+            return y === (year - 1) && w > 0 && w <= week;
+        });
+
+        const total = rows.length;
+        const prevTotal = prevRows.length;
+        const variation = prevTotal > 0 ? (((total - prevTotal) / prevTotal) * 100) : null;
+        const variationText = variation === null
+            ? 'Sin comparación disponible'
+            : `${variation >= 0 ? 'Aumento' : 'Disminución'} ${Math.abs(variation).toFixed(1)}%`;
+
+        const variationSub = `comparado con SE ${String(week).padStart(2, '0')} de ${year - 1}`;
+        const reason = summary.total.razon;
+        const hospitalizadas = rows.filter((r) => boolLike(getValue(r, ['pac_hos', 'hospitalizado']))).length;
+        const enUci = rows.filter((r) => boolLike(getValue(r, ['ingres_uci', 'uci']))).length;
+        const defunciones = rows.filter((r) => isDeathOutcome(r)).length;
+        const hosp = rows.length ? ((hospitalizadas * 100) / rows.length) : 0;
+        const pctUci = rows.length ? ((enUci * 100) / rows.length) : 0;
+        const pctLetalidad = rows.length ? ((defunciones * 100) / rows.length) : 0;
+
+        const setText = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        };
+
+        setText('preview-periodo', `Periodo Epidemiológico ${ROMAN[period]} Semana Epidemiológica ${String(week).padStart(2, '0')}, ${year}`);
+        setText('header-periodo-label', `Periodo ${ROMAN[period]} - Semana ${String(week).padStart(2, '0')} de ${year}`);
+        setText('preview-total-casos', formatNumber(total, 0));
+        setText('preview-variacion', variation === null ? '0.0%' : `${Math.abs(variation).toFixed(1)}%`);
+        setText('preview-variacion-sub', variationSub);
+        setText('kpi-total-casos', formatNumber(total, 0));
+        setText('kpi-hospitalizados', `${hosp.toFixed(1)}%`);
+        setText('kpi-uci', `${pctUci.toFixed(1)}%`);
+        setText('kpi-letalidad', `${pctLetalidad.toFixed(1)}%`);
+        setText('kpi-razon', reason === null ? 'N/D' : formatNumber(reason, 1));
+
+        const variEl = document.getElementById('preview-variacion');
+        const variSub = document.getElementById('preview-variacion-sub');
+        if (variEl) variEl.style.color = variation === null ? '#991B1B' : (variation >= 0 ? '#991B1B' : '#0F766E');
+        if (variSub) variSub.textContent = `${variation >= 0 ? 'Aumento' : 'Disminución'} comparado con SE ${String(week).padStart(2, '0')} de ${year - 1}`;
+
+        const headerTitle = document.getElementById('page-editor-title');
+        if (headerTitle) headerTitle.textContent = 'Boletín Epidemiológico - Vigilancia en Salud Pública';
+    }
+
+    function renderBehaviorChart(rows) {
+        const weekLimit = Math.max(1, Number(state.selectedWeek || 1));
+        const labels = Array.from({ length: weekLimit }, (_, idx) => `SE ${String(idx + 1).padStart(2, '0')}`);
+        const current = new Array(weekLimit).fill(0);
+        const previous = new Array(weekLimit).fill(0);
+
+        state.allRows.forEach((row) => {
+            const y = Math.trunc(toNumber(row.a_o) || state.selectedYear);
+            const w = Math.trunc(toNumber(row.semana) || 0);
+            if (w <= 0 || w > weekLimit) return;
+            if (y === state.selectedYear) current[w - 1] += 1;
+            if (y === (state.selectedYear - 1)) previous[w - 1] += 1;
+        });
+
+        renderChart('chart-semanas', {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [
+                    { label: `${state.selectedYear}`, data: current, backgroundColor: '#5A9BD5' },
+                    { label: `${state.selectedYear - 1}`, data: previous, type: 'line', borderColor: '#C97A2B', backgroundColor: '#C97A2B', tension: 0.3, pointRadius: 2 }
+                ]
+            },
+            options: {
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+    }
+
+    function renderSociodemographicCharts(rows) {
+        const ageBins = [
+            { label: '15-19', min: 15, max: 19 },
+            { label: '20-24', min: 20, max: 24 },
+            { label: '25-29', min: 25, max: 29 },
+            { label: '30-34', min: 30, max: 34 },
+            { label: '35-39', min: 35, max: 39 },
+            { label: '40+', min: 40, max: 90 }
+        ];
+        const ageData = ageBins.map((bin) => rows.filter((row) => {
+            const age = toNumber(row.edad);
+            return age !== null && age >= bin.min && age <= bin.max;
+        }).length);
+
+        renderChart('chart-edad', {
+            type: 'bar',
+            data: {
+                labels: ageBins.map((bin) => bin.label),
+                datasets: [{ label: 'Casos', data: ageData, backgroundColor: '#A8D5BA' }]
+            },
+            options: { scales: { y: { beginAtZero: true } } }
+        });
+
+        const areaRows = countBy(rows, (row) => getValue(row, ['area', 'area_residencia']))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 6);
+        renderChart('chart-area', {
+            type: 'doughnut',
+            data: {
+                labels: areaRows.map((item) => item.label),
+                datasets: [{ data: areaRows.map((item) => item.value), backgroundColor: ['#A8D5BA', '#9BC2E6', '#F4C7A1', '#C5E0B4', '#FFE699', '#B4C7E7'] }]
+            }
+        });
+
+        const estratos = ['1', '2', '3', '4', '5', '6', 'SIN DATO'];
+        const estratoData = estratos.map((item) => rows.filter((row) => (String(getValue(row, ['estrato']) || '').trim() || 'SIN DATO') === item).length);
+        renderChart('chart-estrato', {
+            type: 'doughnut',
+            data: {
+                labels: estratos,
+                datasets: [{ data: estratoData, backgroundColor: ['#A8D5BA', '#9BC2E6', '#F4C7A1', '#C5E0B4', '#FFE699', '#B4C7E7', '#D1D5DB'] }]
+            }
+        });
+
+        const afiliacionRows = countBy(rows, (row) => getValue(row, ['tip_ss', 'afiliacion', 'regimen', 'tipo_afiliacion']))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 6);
+        renderChart('chart-afiliacion', {
+            type: 'doughnut',
+            data: {
+                labels: afiliacionRows.map((item) => item.label),
+                datasets: [{ data: afiliacionRows.map((item) => item.value), backgroundColor: ['#C5E0B4', '#9BC2E6', '#F4C7A1', '#FFE699', '#B4C7E7', '#A8D5BA'] }]
+            }
+        });
+    }
+
+    function renderClinicalCharts(rows) {
+        const terminacion = { Cesarea: 0, Parto: 0, 'Continua embarazo': 0, 'Sin dato': 0 };
+        rows.forEach((row) => {
+            const txt = normalizeText(getValue(row, ['term_gesta', 'terminacion_gestacion']));
+            if (txt.includes('CESAR')) terminacion.Cesarea += 1;
+            else if (txt.includes('PART')) terminacion.Parto += 1;
+            else if (txt.includes('CONTINUA') || txt.includes('EMBAR')) terminacion['Continua embarazo'] += 1;
+            else terminacion['Sin dato'] += 1;
+        });
+
+        renderChart('chart-terminacion', {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(terminacion),
+                datasets: [{ data: Object.values(terminacion), backgroundColor: ['#9BC2E6', '#C5E0B4', '#F4C7A1', '#D1D5DB'] }]
+            }
+        });
+
+        const momento = { Durante: 0, Después: 0, Antes: 0, 'Sin dato': 0 };
+        rows.forEach((row) => {
+            const txt = normalizeText(getValue(row, ['momento_evento', 'term_gesta']));
+            if (txt.includes('DURANTE') || txt.includes('PART')) momento.Durante += 1;
+            else if (txt.includes('DESPUES') || txt.includes('PUERP')) momento['Después'] += 1;
+            else if (txt.includes('ANTES') || txt.includes('GEST')) momento.Antes += 1;
+            else momento['Sin dato'] += 1;
+        });
+
+        renderChart('chart-momento', {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(momento),
+                datasets: [{ data: Object.values(momento), backgroundColor: ['#C5E0B4', '#9BC2E6', '#F4C7A1', '#D1D5DB'] }]
+            }
+        });
+
+        const semBins = [
+            { label: '1-12', min: 1, max: 12 },
+            { label: '13-20', min: 13, max: 20 },
+            { label: '21-28', min: 21, max: 28 },
+            { label: '29-36', min: 29, max: 36 },
+            { label: '>=37', min: 37, max: 60 }
+        ];
+        const semData = semBins.map((bin) => rows.filter((row) => {
+            const value = toNumber(getValue(row, ['sem_ges', 'semanas_gestacion']));
+            return value !== null && value >= bin.min && value <= bin.max;
+        }).length);
+
+        renderChart('chart-sem-ges', {
+            type: 'bar',
+            data: {
+                labels: semBins.map((item) => item.label),
+                datasets: [{ label: 'Casos', data: semData, backgroundColor: '#A8D5BA' }]
+            },
+            options: { scales: { y: { beginAtZero: true } } }
+        });
+    }
+
+    function actualizarDatosBoletin() {
+        const rows = getFilteredRows();
+        const summary = buildSummaryMunicipal(rows);
+        const opportunity = buildOpportunitySummary(rows);
+        const upgd = buildUpgdInop(rows);
+        const clinicalTables = renderClinicalTables(rows);
+
+        if (!summary.hasRawNv) {
+            console.warn('Boletín epidemiológico: no se encontró la columna num_vivos en cleanedData para el filtro activo. Se usarán NV de referencia.');
+        }
+
+        renderPeriodHeader(rows, summary);
+        renderMunicipalTable(summary);
+        renderOpportunityTable(opportunity);
+        renderUpgdTable(upgd);
+        renderMap(summary);
+        renderAgeTable(rows, rows.length);
+        renderVulnerables(rows);
+        renderBehaviorChart(rows);
+        renderSociodemographicCharts(rows);
+        renderClinicalCharts(rows);
+
+        const eventName = getSelectedEventName();
+        const previewTitle = document.getElementById('preview-event-name');
+        if (previewTitle) previewTitle.textContent = eventName;
+        const period = Math.ceil(state.selectedWeek / 4);
+        const periodLabel = document.getElementById('header-periodo-label');
+        if (periodLabel) periodLabel.textContent = `Periodo ${ROMAN[period]} - Semana ${String(state.selectedWeek).padStart(2, '0')} de ${state.selectedYear}`;
+
+        if (state.useAutoNarrative) {
+            const narrative = buildOfficialNarrative(rows, summary, opportunity, clinicalTables.topCause);
+            setNarrativeFields(narrative);
+        }
+
+        if (els.syncStatus) {
+            const fecha = state.dataTimestamp || 'sin marca de tiempo';
+            els.syncStatus.textContent = `Conectado a cleanedData. Filas activas: ${rows.length} de ${state.cleanedData.length}. Última actualización: ${fecha}`;
+        }
+    }
+
+    function syncNarrativeFields() {
+        const fields = [
+            els.introMain,
+            els.methodsMain,
+            els.behaviorMain,
+            els.socioMain,
+            els.clinicalMain,
+            els.indicatorMain,
+            els.obsMain
+        ].filter(Boolean);
+
+        fields.forEach((field) => {
+            field.addEventListener('input', () => {
+                state.useAutoNarrative = false;
+            });
+        });
+
+        if (els.obsMain && els.obsSide) {
+            els.obsMain.addEventListener('input', () => {
+                if (els.obsSide.value !== els.obsMain.value) els.obsSide.value = els.obsMain.value;
+            });
+            els.obsSide.addEventListener('input', () => {
+                state.useAutoNarrative = false;
+                if (els.obsMain.value !== els.obsSide.value) els.obsMain.value = els.obsSide.value;
+            });
+        }
+    }
+
+    function buildFormContent() {
+        const narrative = getNarrativeFields();
+        const total = document.getElementById('kpi-total-casos') ? document.getElementById('kpi-total-casos').textContent : '0';
+        const razon = document.getElementById('kpi-razon') ? document.getElementById('kpi-razon').textContent : 'N/D';
+        const period = document.getElementById('preview-periodo') ? document.getElementById('preview-periodo').textContent : '';
+
+        return [
+            `Titulo: ${els.titleInput ? els.titleInput.value.trim() : ''}`,
+            period,
+            `Total casos: ${total}`,
+            `Razon departamental: ${razon}`,
+            '',
+            'Introduccion:',
+            narrative.intro,
+            '',
+            'Materiales y metodos:',
+            narrative.methods,
+            '',
+            'Comportamiento en Risaralda:',
+            narrative.behavior,
+            '',
+            'Variables sociodemograficas:',
+            narrative.socio,
+            '',
+            'Variables clinicas:',
+            narrative.clinical,
+            '',
+            'Indicadores de interes epidemiologico:',
+            narrative.indicators,
+            '',
+            'Observaciones finales:',
+            narrative.obs
+        ].join('\n').trim();
+    }
+
+    function prepareSubmit(status) {
+        if (!els.form || !els.formTitle || !els.formStatus || !els.formContent || !els.formEventCode) return;
+
+        const title = (els.titleInput && els.titleInput.value ? els.titleInput.value.trim() : '') || `Boletín Epidemiológico - ${getSelectedEventName()}`;
+        const content = buildFormContent();
+        if (content.length < 20) {
+            alert('El contenido del boletín es muy corto. Completa introducción u observaciones.');
+            return;
+        }
+
+        els.formTitle.value = title;
+        els.formStatus.value = status;
+        els.formContent.value = content;
+        els.formEventCode.value = String(getCurrentEventCode());
+        els.form.submit();
+    }
+
+    async function descargarPdf() {
+        if (typeof window.html2pdf !== 'function') {
+            alert('No fue posible inicializar html2pdf en este navegador.');
+            return;
+        }
+        const node = document.getElementById('preview-root');
+        if (!node) return;
+
+        const filename = `Boletin_${getCurrentEventCode()}_SE${String(state.selectedWeek).padStart(2, '0')}_${state.selectedYear}.pdf`;
+        const options = {
+            margin: [6, 6, 6, 6],
+            filename,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'] }
+        };
+
+        await window.html2pdf().set(options).from(node).save();
+    }
+
+    async function refreshDataAndRender() {
+        try {
+            await fetchData();
+            fillWeekSelector(state.allRows);
+            actualizarDatosBoletin();
+        } catch (error) {
+            if (els.syncStatus) {
+                els.syncStatus.textContent = `Error de sincronización: ${error.message}`;
+                els.syncStatus.classList.add('text-red-700');
+            }
+        }
+    }
+
+    function bindEvents() {
+        syncNarrativeFields();
+
+        const parsed = parseNarrativeFromContent(initialContentRaw || (els.formContent ? els.formContent.value : ''));
+        if (Object.keys(parsed).length) {
+            state.useAutoNarrative = false;
+            setNarrativeFields({
+                intro: parsed.intro || FALLBACK_TEXTS.intro,
+                methods: parsed.methods || FALLBACK_TEXTS.methods,
+                behavior: parsed.behavior || FALLBACK_TEXTS.behavior,
+                socio: parsed.socio || FALLBACK_TEXTS.socio,
+                clinical: parsed.clinical || FALLBACK_TEXTS.clinical,
+                indicators: parsed.indicators || FALLBACK_TEXTS.indicators,
+                obs: parsed.obs || FALLBACK_TEXTS.obs
+            });
+        } else {
+            state.useAutoNarrative = true;
+            setNarrativeFields(FALLBACK_TEXTS);
+        }
+
+        const btnPreview = document.getElementById('btn-preview');
+        const btnSaveSide = document.getElementById('btn-save-side');
+        const btnPublishSide = document.getElementById('btn-publish-side');
+        const btnDownloadSide = document.getElementById('btn-download-side');
+        const btnApplyTemplate = document.getElementById('btn-apply-template');
+
+        if (btnPreview) btnPreview.addEventListener('click', () => {
+            actualizarDatosBoletin();
+            const node = document.getElementById('preview-root');
+            if (node) node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        if (btnSaveSide) btnSaveSide.addEventListener('click', () => prepareSubmit('BORRADOR'));
+        if (btnPublishSide) btnPublishSide.addEventListener('click', () => prepareSubmit('PUBLICADO'));
+        if (btnDownloadSide) btnDownloadSide.addEventListener('click', () => descargarPdf());
+        if (btnApplyTemplate) {
+            btnApplyTemplate.addEventListener('click', () => {
+                state.useAutoNarrative = true;
+                actualizarDatosBoletin();
+            });
+        }
+
+        if (els.weekSelect) {
+            els.weekSelect.addEventListener('change', () => {
+                state.hasManualWeekSelection = true;
+                state.selectedWeek = Number(els.weekSelect.value || state.selectedWeek);
+                actualizarDatosBoletin();
+            });
+        }
+
+        if (els.eventSelect && !els.eventSelect.disabled) {
+            els.eventSelect.addEventListener('change', async () => {
+                els.formEventCode.value = els.eventSelect.value;
+                await refreshDataAndRender();
+            });
+        }
+    }
+
+    window.actualizarDatosBoletin = actualizarDatosBoletin;
+    bindEvents();
+    refreshDataAndRender();
+    setInterval(refreshDataAndRender, 20000);
+})();
+</script>
 {% endblock %}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import copy
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -16,6 +18,10 @@ class DataCache:
 
 
 CACHE = DataCache()
+CACHE_LOCK = threading.Lock()
+PAYLOAD_CACHE: dict[str, dict[str, Any]] = {}
+PAYLOAD_CACHE_LOCK = threading.Lock()
+MAX_PAYLOAD_CACHE_ITEMS = 48
 
 MUNICIPIOS_RISARALDA = [
     "APIA",
@@ -150,13 +156,88 @@ def _clasificacion_razon(razon: float) -> str:
     return "SIN CASOS"
 
 
+TARGET_CLEANED_COLUMNS: dict[str, list[str]] = {
+    "edad": ["edad"],
+    "semana": ["semana"],
+    "a_o": ["a_o", "ano", "año"],
+    "pac_hos": ["pac_hos", "hospitalizado"],
+    "ingres_uci": ["ingres_uci", "uci"],
+    "fec_def": ["fec_def", "fecha_defuncion"],
+    "dias_hospi": ["dias_hospi", "dias_hospitalizacion"],
+    "hemorragia_obst_trica_severa": ["hemorragia_obst_trica_severa"],
+    "eclampsia": ["eclampsia"],
+    "preclampsi": ["preclampsi", "preeclampsia", "preclampsia"],
+    "falla_card": ["falla_card", "falla_cardiaca"],
+    "falla_rena": ["falla_rena", "falla_renal"],
+    "rupt_uteri": ["rupt_uteri", "ruptura_uterina"],
+    "caus_agrup": ["caus_agrup"],
+    "caus_princ": ["caus_princ"],
+    "nmun_resi": ["nmun_resi", "municipio", "mun_resi", "nom_mun_r"],
+    "ndep_resi": ["ndep_resi", "dpto_resi", "departamento_residencia"],
+    "area": ["area"],
+    "estrato": ["estrato"],
+    "per_etn": ["per_etn"],
+    "nom_grupo": ["nom_grupo"],
+    "gp_discapa": ["gp_discapa"],
+    "gp_desplaz": ["gp_desplaz"],
+    "gp_migrant": ["gp_migrant"],
+    "gp_indigen": ["gp_indigen"],
+    "gp_gestan": ["gp_gestan"],
+    "num_gestac": ["num_gestac"],
+    "num_vivos": ["num_vivos", "nacidos_vivos", "nv_2026", "nv"],
+    "sem_ges": ["sem_ges"],
+    "term_gesta": ["term_gesta"],
+    "dias_notificacion": ["dias_notificacion", "dias_notif", "tiempo_notificacion", "dias_noti"],
+}
+
+
+def _to_json_scalar(value: Any) -> Any:
+    if pd.isna(value):
+        return None
+
+    if isinstance(value, pd.Timestamp):
+        return value.strftime("%Y-%m-%d")
+
+    if isinstance(value, (datetime,)):
+        return value.strftime("%Y-%m-%d")
+
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+
+    return value
+
+
+def _build_cleaned_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    columns = list(df.columns)
+    resolved: dict[str, Optional[str]] = {}
+
+    for target, candidates in TARGET_CLEANED_COLUMNS.items():
+        resolved[target] = _first_existing_col(columns, candidates)
+
+    records: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        out: dict[str, Any] = {}
+        for target, source_col in resolved.items():
+            out[target] = _to_json_scalar(row[source_col]) if source_col else None
+        records.append(out)
+
+    return records
+
+
 def _load_dataframe_cached(file_path: Path) -> pd.DataFrame:
     global CACHE
     st = file_path.stat()
     path = str(file_path)
 
-    if CACHE.path == path and CACHE.mtime_ns == st.st_mtime_ns and CACHE.df is not None:
-        return CACHE.df.copy()
+    if st.st_size == 0:
+        raise ValueError(f"Archivo depurado vacío: {file_path.name}")
+
+    with CACHE_LOCK:
+        if CACHE.path == path and CACHE.mtime_ns == st.st_mtime_ns and CACHE.df is not None:
+            return CACHE.df.copy()
 
     if file_path.suffix.lower() in [".xlsx", ".xls"]:
         df = pd.read_excel(file_path)
@@ -172,8 +253,47 @@ def _load_dataframe_cached(file_path: Path) -> pd.DataFrame:
         if df is None:
             raise RuntimeError(f"No se pudo leer CSV depurado: {file_path}") from last_error
 
-    CACHE = DataCache(path=path, mtime_ns=st.st_mtime_ns, df=df)
+    if df.empty:
+        raise ValueError(f"Archivo depurado sin registros: {file_path.name}")
+
+    with CACHE_LOCK:
+        CACHE = DataCache(path=path, mtime_ns=st.st_mtime_ns, df=df)
+
     return df.copy()
+
+
+def _build_payload_cache_key(mode: str, file_path: Path, event_code: int, municipio: Optional[str]) -> tuple[str, Any]:
+    st = file_path.stat()
+    municipio_key = _normalize_text(municipio) if municipio else "all"
+    key = f"{mode}:{event_code}:{file_path.resolve()}:{st.st_mtime_ns}:{st.st_size}:{municipio_key}"
+    return key, st
+
+
+def _get_cached_payload(cache_key: str) -> Optional[dict[str, Any]]:
+    with PAYLOAD_CACHE_LOCK:
+        payload = PAYLOAD_CACHE.get(cache_key)
+        if payload is None:
+            return None
+        return copy.deepcopy(payload)
+
+
+def _set_cached_payload(cache_key: str, payload: dict[str, Any]) -> None:
+    with PAYLOAD_CACHE_LOCK:
+        if len(PAYLOAD_CACHE) >= MAX_PAYLOAD_CACHE_ITEMS:
+            oldest_key = next(iter(PAYLOAD_CACHE.keys()), None)
+            if oldest_key is not None:
+                PAYLOAD_CACHE.pop(oldest_key, None)
+        PAYLOAD_CACHE[cache_key] = copy.deepcopy(payload)
+
+
+def _error_payload(message: str, code: str, status_code: int) -> dict[str, Any]:
+    return {
+        "ok": False,
+        "error": message,
+        "error_code": code,
+        "status_code": status_code,
+        "data": None,
+    }
 
 
 def find_latest_depurado_file(base_dir: Path, event_code: int) -> Optional[Path]:
@@ -225,21 +345,37 @@ def find_latest_depurado_file(base_dir: Path, event_code: int) -> Optional[Path]
 def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[str] = None) -> dict[str, Any]:
     file_path = find_latest_depurado_file(base_dir, event_code)
     if not file_path:
-        return {
-            "ok": False,
-            "error": f"No se encontró archivo depurado para evento {event_code}",
-            "data": None,
-        }
+        return _error_payload(
+            message=f"No se encontró archivo depurado para evento {event_code}",
+            code="FILE_NOT_FOUND",
+            status_code=404,
+        )
 
-    df = _load_dataframe_cached(file_path)
-    columns = list(df.columns)
+    cache_key, st = _build_payload_cache_key("dashboard", file_path, event_code, municipio)
+    cached = _get_cached_payload(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        df_full = _load_dataframe_cached(file_path)
+    except ValueError as exc:
+        return _error_payload(str(exc), "EMPTY_FILE", 422)
+    except Exception:
+        return _error_payload(
+            message=f"Archivo depurado corrupto o no legible: {file_path.name}",
+            code="CORRUPT_FILE",
+            status_code=422,
+        )
+
+    columns = list(df_full.columns)
 
     col_municipio = _first_existing_col(columns, ["nmun_resi", "municipio", "mun_resi", "nom_mun_r"])
     col_semana = _first_existing_col(columns, ["semana"])
     col_edad = _first_existing_col(columns, ["edad"])
     col_sexo = _first_existing_col(columns, ["sexo"])
 
-    total_sin_filtro = len(df)
+    total_sin_filtro = len(df_full)
+    df = df_full
 
     if municipio and col_municipio:
         norm = _normalize_text(municipio)
@@ -258,7 +394,7 @@ def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[st
     municipios_disponibles = []
     if col_municipio:
         full_mun = (
-            _load_dataframe_cached(file_path)[col_municipio]
+            df_full[col_municipio]
             .fillna("Sin municipio")
             .astype(str)
             .str.strip()
@@ -297,14 +433,15 @@ def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[st
         )
         by_sexo = [{"sexo": str(k), "casos": int(v)} for k, v in vc.items()]
 
-    st = file_path.stat()
     data_version = f"{file_path.name}:{st.st_mtime_ns}:{st.st_size}:{total_sin_filtro}:{total}:{municipio or 'ALL'}"
 
-    return {
+    payload = {
         "ok": True,
         "error": None,
         "data": {
             "evento": event_code,
+            "fuente": "archivo_depurado_local",
+            "is_local_source": True,
             "archivo_depurado": file_path.name,
             "archivo_modificado": pd.Timestamp(st.st_mtime, unit="s").strftime("%Y-%m-%d %H:%M:%S"),
             "data_version": data_version,
@@ -321,6 +458,9 @@ def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[st
         },
     }
 
+    _set_cached_payload(cache_key, payload)
+    return payload
+
 
 def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = None) -> dict[str, Any]:
     """
@@ -329,13 +469,28 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
     event_code = 549
     file_path = find_latest_depurado_file(base_dir, event_code)
     if not file_path:
-        return {
-            "ok": False,
-            "error": "No se encontró archivo depurado del evento 549",
-            "data": None,
-        }
+        return _error_payload(
+            message="No se encontró archivo depurado del evento 549",
+            code="FILE_NOT_FOUND",
+            status_code=404,
+        )
 
-    df_full = _load_dataframe_cached(file_path)
+    cache_key, st = _build_payload_cache_key("legacy_549", file_path, event_code, municipio)
+    cached = _get_cached_payload(cache_key)
+    if cached is not None:
+        return cached
+
+    try:
+        df_full = _load_dataframe_cached(file_path)
+    except ValueError as exc:
+        return _error_payload(str(exc), "EMPTY_FILE", 422)
+    except Exception:
+        return _error_payload(
+            message=f"Archivo depurado corrupto o no legible: {file_path.name}",
+            code="CORRUPT_FILE",
+            status_code=422,
+        )
+
     columns = list(df_full.columns)
 
     col_municipio = _first_existing_col(columns, ["nmun_resi", "municipio", "mun_resi", "nom_mun_r"])
@@ -366,6 +521,8 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
         norm = _normalize_text(municipio)
         mask = df[col_municipio].fillna("").astype(str).str.strip().apply(lambda v: _normalize_text(v) == norm)
         df = df[mask].copy()
+
+    cleaned_records = _build_cleaned_records(df)
 
     total = int(len(df))
 
@@ -551,7 +708,6 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
             edad_stats["maxima"] = int(edades_num.max())
             edad_stats["moda"] = int(edades_num.mode().iloc[0]) if not edades_num.mode().empty else 0
 
-    st = file_path.stat()
     data_version = f"{file_path.name}:{st.st_mtime_ns}:{st.st_size}:{total_sin_filtro}:{total}:{municipio or 'ALL'}"
 
     dashboard_data = {
@@ -592,11 +748,13 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
         "edadEstadisticas": edad_stats,
     }
 
-    return {
+    payload = {
         "ok": True,
         "error": None,
         "data": {
             "evento": 549,
+            "fuente": "archivo_depurado_local",
+            "is_local_source": True,
             "archivo_depurado": file_path.name,
             "archivo_depurado_ruta": str(file_path),
             "archivo_modificado": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
@@ -605,6 +763,10 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
             "municipio_filtro": municipio,
             "municipios_disponibles": municipios_disponibles,
             "data_version": data_version,
+            "cleanedData": cleaned_records,
             "dashboard_data": dashboard_data,
         },
     }
+
+    _set_cached_payload(cache_key, payload)
+    return payload

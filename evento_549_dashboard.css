@@ -1360,6 +1360,13 @@ select:disabled {
     font-weight: 700;
 }
 
+.chart-subtitle {
+    margin: -8px 0 14px 0;
+    font-size: 0.9em;
+    color: #4B5563;
+    line-height: 1.45;
+}
+
 /* ====================================
    TABLA SECTION
    ==================================== */
@@ -1380,7 +1387,7 @@ select:disabled {
    ==================================== */
 .mapa-tabla-container {
     display: grid;
-    grid-template-columns: 1.2fr 1fr;
+    grid-template-columns: 1fr 1.25fr;
     gap: 25px;
     margin-bottom: 30px;
 }
@@ -1415,6 +1422,57 @@ select:disabled {
     background-color: #F5F5F5;
     position: relative;
     z-index: 1;
+}
+
+#grafico-mapa svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.map-svg-region {
+    stroke: #1f2937;
+    stroke-width: 1;
+    transition: fill 0.2s ease, opacity 0.2s ease, stroke-width 0.2s ease;
+    cursor: pointer;
+}
+
+.map-svg-region:hover,
+.map-svg-region:focus {
+    stroke-width: 2;
+    opacity: 0.88;
+    outline: none;
+}
+
+.map-svg-label {
+    font-size: 9px;
+    fill: #1F2937;
+    pointer-events: none;
+    font-weight: 700;
+    text-anchor: middle;
+}
+
+.map-tooltip {
+    position: absolute;
+    pointer-events: none;
+    min-width: 190px;
+    max-width: 240px;
+    background: rgba(17, 24, 39, 0.96);
+    color: #fff;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.26);
+    opacity: 0;
+    transform: translateY(6px);
+    transition: opacity 0.14s ease, transform 0.14s ease;
+    z-index: 8;
+}
+
+.map-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
 }
 
 .leaflet-container {
@@ -1544,21 +1602,22 @@ select:disabled {
    ==================================== */
 .tabla-section-territorial {
     background: white;
-    padding: 25px;
+    padding: 12px;
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
-    overflow: auto;
-    max-height: 500px;
+    overflow: visible;
+    max-height: none;
+    border: 1px solid #D1D5DB;
 }
 
 .tabla-section-territorial h4 {
     color: var(--color-primary);
-    margin-bottom: 15px;
-    font-size: 1.05em;
-    border-bottom: 2px solid var(--gris-claro);
-    padding-bottom: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+    font-size: 0.96em;
+    border-bottom: 1px solid #6B7280;
+    padding-bottom: 6px;
+    text-transform: none;
+    letter-spacing: 0;
     font-weight: 700;
 }
 
@@ -2128,36 +2187,32 @@ select:disabled {
 .tabla-territorial {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
 }
 
 .tabla-territorial thead tr {
-    background: var(--color-secondary);
-    color: white;
+    background: #E5E7EB;
+    color: #111827;
     font-weight: 700;
 }
 
 .territorial-header-row {
-    background: var(--color-secondary);
-    color: white;
-}
-
-.territorial-col-rank {
-    width: 5%;
-    text-align: center;
+    background: #E5E7EB;
+    color: #111827;
 }
 
 .territorial-col-name {
-    width: 35%;
+    width: 44%;
 }
 
 .territorial-col-cases,
 .territorial-col-nv {
-    width: 15%;
+    width: 17%;
     text-align: center;
 }
 
 .territorial-col-ratio {
-    width: 30%;
+    width: 22%;
     text-align: center;
 }
 
@@ -2166,23 +2221,18 @@ select:disabled {
     padding: 16px;
 }
 
-.territorial-cell-rank {
-    width: 5%;
-    text-align: center;
-}
-
 .territorial-cell-name {
-    width: 35%;
+    width: 44%;
 }
 
 .territorial-cell-cases,
 .territorial-cell-nv {
-    width: 15%;
+    width: 17%;
     text-align: center;
 }
 
 .territorial-cell-ratio {
-    width: 30%;
+    width: 22%;
     text-align: center;
 }
 
@@ -2192,14 +2242,14 @@ select:disabled {
 }
 
 .tabla-territorial thead th {
-    padding: 15px 12px;
+    padding: 4px 6px;
     text-align: left;
-    font-size: 0.95em;
-    letter-spacing: 0.5px;
-    border-bottom: 2px solid #00579D;
+    font-size: 0.8em;
+    letter-spacing: 0;
+    border-bottom: 1px solid #6B7280;
 }
 
-.tabla-territorial thead th:nth-child(n+3) {
+.tabla-territorial thead th:nth-child(n+2) {
     text-align: center;
 }
 
@@ -2209,24 +2259,24 @@ select:disabled {
     background: var(--blanco);
 }
 
-.tabla-territorial tbody tr:nth-child(even) {
-    background: #F9FAFB;
-}
-
 .tabla-territorial tbody tr:hover {
-    background: #EFF6FF;
-    box-shadow: inset 4px 0 0 #003DA5;
+    background: #F9FAFB;
+    box-shadow: none;
 }
 
 .tabla-territorial tbody td {
-    padding: 14px 12px;
-    font-size: 0.95em;
+    padding: 2px 6px;
+    font-size: 0.8em;
     vertical-align: middle;
-    border-bottom: 1px solid #E5E7EB;
+    border-bottom: 1px solid #D1D5DB;
 }
 
-.tabla-territorial tbody td:nth-child(n+3) {
+.tabla-territorial tbody td:nth-child(n+2) {
     text-align: center;
+}
+
+.tabla-territorial tbody td.territorial-cell-ratio {
+    font-weight: 700;
 }
 
 .tabla-territorial tbody td strong {
@@ -2234,14 +2284,102 @@ select:disabled {
     color: var(--gris-oscuro);
 }
 
-.tabla-territorial tbody span {
-    padding: 6px 12px;
-    border-radius: 0;
+.tabla-territorial tbody tr.territorial-total-row {
+    background: #E5E7EB;
+    border-top: 2px solid #4B5563;
+}
+
+.tabla-territorial tbody tr.territorial-total-row td {
     font-weight: 700;
-    font-size: 0.85em;
-    display: inline-block;
-    min-width: 95px;
-    text-align: center;
+}
+
+.territorial-risk-scale {
+    margin-top: 10px;
+    padding: 6px 8px;
+    border: 1px solid #E5E7EB;
+    background: #F9FAFB;
+    border-radius: 0;
+    font-size: 0.86em;
+}
+
+.tabla-territorial-fuente {
+    margin-top: 4px;
+    font-size: 0.8em;
+    color: #111827;
+    font-weight: 600;
+}
+
+.ratio-risk-high {
+    background: #8B1A1A;
+    color: #fff;
+}
+
+.ratio-risk-medium {
+    background: #F4B400;
+    color: #3A2C00;
+}
+
+.ratio-risk-low {
+    background: #A8D5BA;
+    color: #154734;
+}
+
+/* Tailwind-like utility classes used by the territorial risk cells */
+.bg-red-800 { background: #C43A31; }
+.bg-amber-400 { background: #F1D26B; }
+.bg-green-200 { background: #9CCF87; }
+.bg-slate-300 { background: #D1D5DB; }
+.text-white { color: #FFFFFF; }
+.text-amber-900 { color: #4B3A00; }
+.text-green-900 { color: #1E3A1E; }
+.text-slate-700 { color: #374151; }
+.font-semibold { font-weight: 700; }
+.px-3 { padding-left: 12px; padding-right: 12px; }
+.py-1 { padding-top: 4px; padding-bottom: 4px; }
+.rounded-sm { border-radius: 2px; }
+
+/* ====================================
+   BOLETIN DINAMICO (TAILWIND + PDF)
+   ==================================== */
+.boletin-pdf-surface {
+    color: #1F2937;
+}
+
+.boletin-editor-textarea {
+    resize: vertical;
+    min-height: 120px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.boletin-print-section {
+    page-break-inside: avoid;
+    break-inside: avoid;
+}
+
+#boletin-print-root canvas {
+    width: 100% !important;
+}
+
+#boletin-mapa-risaralda {
+    position: relative;
+}
+
+.boletin-map-legend span {
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    margin-right: 6px;
+    vertical-align: middle;
+}
+
+@media print {
+    .no-print {
+        display: none !important;
+    }
+
+    #boletin-print-root {
+        box-shadow: none !important;
+        border: 0 !important;
+        padding: 0 !important;
+    }
 }
 
 /* Estilos para scrollbar personalizado */

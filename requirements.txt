@@ -30,4 +30,5 @@ requests==2.32.0
 pyyaml==6.0.1
 pytz==2024.1
 cryptography==46.0.6
+pip freeze > requirements.txt
 

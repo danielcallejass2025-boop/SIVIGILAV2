@@ -48,14 +48,31 @@ let secuenciaSolicitudFiltro = 0;
 let ultimaVersionDatos = null;
 let fallosRefreshConsecutivos = 0;
 let timerEdadDatos = null;
+let timerSyncDatos = null;
+let sincronizacionEnCurso = false;
 let ultimoTimestampDatosMs = null;
+let cleanedData = [];
+const chartsEvento549 = {};
+const boletinChartsEvento549 = {};
 const GRAFICOS_PIE_IDS = ['grafico-afiliacion', 'grafico-momento', 'grafico-oportunidad'];
+const REFRESH_TIEMPO_REAL_MS = 15000;
+
+const BOLETIN_TEXTOS_DEFAULT = {
+    introduccion: 'La Morbilidad Materna Extrema (MME) corresponde a complicaciones graves durante el embarazo, el parto o el puerperio que ponen en riesgo la vida de la mujer y requieren intervenciones inmediatas. Este boletin presenta el comportamiento epidemiologico del evento 549 en Risaralda, con enfoque en analisis temporal, territorial, sociodemografico y clinico para orientar decisiones de vigilancia en salud publica.',
+    conclusiones: 'En el periodo analizado se identifican patrones territoriales y clinicos que requieren seguimiento continuo. La razon departamental y la distribucion por municipio orientan la priorizacion de acciones de respuesta institucional.',
+    observaciones: 'Documento de trabajo institucional. Los textos pueden ser ajustados por epidemiologia o secretaria de salud antes de la publicacion oficial.'
+};
 
 // Respaldo del HTML original para restaurar al volver al evento 549
 let _htmlOriginalBoletin = null;
 let _htmlOriginalDashboardParent = null;
 
 // Nota: el dashboard consume exclusivamente datos reales del archivo depurado vía API.
+
+function esArchivoPurificado549Valido(nombreArchivo) {
+    const nombre = String(nombreArchivo || '').trim().toLowerCase();
+    return nombre === 'mme_depurado_final.csv';
+}
 
 function parsearTimestampLocal(timestamp) {
     if (!timestamp || typeof timestamp !== 'string') return null;
@@ -100,6 +117,20 @@ function actualizarEdadDatosVisual() {
     edadEl.textContent = `Edad de datos: ${formatearEdadDatos(diff)}`;
 }
 
+function mensajeErrorFuenteDatos(error) {
+    const code = String(error && error.code ? error.code : '').toUpperCase();
+    if (code === 'FILE_NOT_FOUND') {
+        return 'No se encontró archivo depurado local para el evento 549';
+    }
+    if (code === 'EMPTY_FILE') {
+        return 'El archivo depurado local está vacío o sin registros válidos';
+    }
+    if (code === 'CORRUPT_FILE') {
+        return 'El archivo depurado local está corrupto o no se puede leer';
+    }
+    return (error && error.message) ? error.message : 'Error de conexión con la fuente local depurada';
+}
+
 /**
  * Carga datos depurados del backend.
  */
@@ -114,11 +145,38 @@ async function obtenerDatosDepurados549(municipio = '', signal = null) {
         signal
     });
 
-    if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
+    let payload = null;
+    try {
+        payload = await response.json();
+    } catch (_e) {
+        payload = null;
     }
 
-    return response.json();
+    if (!response.ok) {
+        const err = new Error((payload && payload.error) ? payload.error : `HTTP ${response.status}`);
+        err.code = (payload && payload.error_code) ? payload.error_code : `HTTP_${response.status}`;
+        throw err;
+    }
+
+    if (!payload || typeof payload !== 'object') {
+        const err = new Error('Respuesta inválida de la API depurada');
+        err.code = 'INVALID_PAYLOAD';
+        throw err;
+    }
+
+    if (payload.fuente && payload.fuente !== 'archivo_depurado_local') {
+        const err = new Error('La API respondió con una fuente de datos no permitida para el dashboard');
+        err.code = 'INVALID_SOURCE';
+        throw err;
+    }
+
+    if (!esArchivoPurificado549Valido(payload.archivo_depurado)) {
+        const err = new Error('La API no respondió con la base de datos purificada MME_Depurado_Final.csv');
+        err.code = 'INVALID_PURIFIED_FILE';
+        throw err;
+    }
+
+    return payload;
 }
 
 async function obtenerDatosDepurados549ConRetry(municipio = '', signal = null, reintentos = 1) {
@@ -333,11 +391,11 @@ function actualizarBarraEstado(archivo, timestamp, exito, mensajePersonalizado =
     if (exito) {
         dot.className = 'status-dot online';
         const mensaje = mensajePersonalizado || (municipioFiltroActual
-            ? `Conectado — Municipio: ${municipioFiltroActual}`
-            : 'Conectado — Total departamental');
+            ? `Conectado a base purificada — Municipio: ${municipioFiltroActual}`
+            : 'Conectado a base purificada — Total departamental');
         text.textContent = mensaje;
         if (archivo !== null && archivo !== undefined) {
-            arch.textContent = archivo || '';
+            arch.textContent = archivo ? `Base activa: ${archivo}` : '';
         }
         if (timestamp !== null && timestamp !== undefined) {
             ts.textContent = timestamp ? `Actualizado: ${timestamp}` : '';
@@ -527,15 +585,56 @@ async function sincronizarDashboardTiempoReal() {
         fallosRefreshConsecutivos = 0;
     } catch (err) {
         fallosRefreshConsecutivos += 1;
+        const msg = mensajeErrorFuenteDatos(err);
         if (fallosRefreshConsecutivos >= 2) {
             actualizarBarraEstado(
                 null,
                 null,
                 false,
-                'Sincronización temporalmente interrumpida (mostrando última lectura)'
+                `${msg} (mostrando última lectura)`
             );
         }
     }
+}
+
+function detenerSincronizacionAutomatica() {
+    if (timerSyncDatos) {
+        clearInterval(timerSyncDatos);
+        timerSyncDatos = null;
+    }
+}
+
+async function forzarSincronizacionInmediata() {
+    if (eventoActual !== 549) {
+        return;
+    }
+    if (sincronizacionEnCurso) {
+        return;
+    }
+
+    sincronizacionEnCurso = true;
+    try {
+        await sincronizarDashboardTiempoReal();
+    } finally {
+        sincronizacionEnCurso = false;
+    }
+}
+
+function iniciarSincronizacionAutomatica() {
+    detenerSincronizacionAutomatica();
+
+    timerSyncDatos = setInterval(async () => {
+        if (document.hidden || eventoActual !== 549 || sincronizacionEnCurso) {
+            return;
+        }
+
+        sincronizacionEnCurso = true;
+        try {
+            await sincronizarDashboardTiempoReal();
+        } finally {
+            sincronizacionEnCurso = false;
+        }
+    }, REFRESH_TIEMPO_REAL_MS);
 }
 
 // ====================================
@@ -654,6 +753,7 @@ async function aplicarFiltroMunicipio(municipio) {
         }
 
         console.error('❌ Error aplicando filtro de municipio:', error);
+    const mensajeError = mensajeErrorFuenteDatos(error);
 
         // Mantener selección del usuario aunque haya fallo temporal
         if (select) {
@@ -667,8 +767,8 @@ async function aplicarFiltroMunicipio(municipio) {
         }
         if (estadoTexto) {
             estadoTexto.textContent = municipioFiltroActual
-                ? `Conectado — Municipio: ${municipioFiltroActual} (última lectura)`
-                : 'Conectado — Total departamental (última lectura)';
+                ? `${mensajeError} — ${municipioFiltroActual} (última lectura)`
+                : `${mensajeError} (última lectura)`;
         }
     } finally {
         if (select && miSecuencia === secuenciaSolicitudFiltro) {
@@ -741,22 +841,25 @@ async function cambiarEvento(codigoEvento) {
     // Si es evento 549, mostrar dashboard con datos
     if (eventoActual === 549) {
         console.log('✅ Cargando datos depurados del evento 549...');
+        iniciarSincronizacionAutomatica();
         try {
             const payload = await obtenerDatosDepurados549ConRetry(municipioFiltroActual, null, 1);
             actualizarTodoDashboardConDatos(payload);
             console.log(`📦 Fuente depurada: ${payload.archivo_depurado} | casos: ${payload.total_casos}`);
             actualizarBarraEstado(payload.archivo_depurado, payload.archivo_modificado, true);
+            await forzarSincronizacionInmediata();
         } catch (error) {
             console.warn('⚠️ No fue posible cargar API depurada.', error);
             datosActuales = crearDatosVaciosDesdeDepurado();
             totalSinFiltroActual = 0;
-            actualizarBarraEstado(null, null, false);
+            actualizarBarraEstado(null, null, false, mensajeErrorFuenteDatos(error));
         }
 
         mostrarDashboardConDatos();
     } else {
         // Para otros eventos, mostrar mensaje sin datos
         console.log(`⚠️ Evento ${eventoActual} sin datos disponibles`);
+        detenerSincronizacionAutomatica();
         mostrarSinDatos();
     }
     
@@ -779,6 +882,8 @@ function mostrarDashboardConDatos() {
     if (_htmlOriginalBoletin !== null && boletinSection) {
         boletinSection.innerHTML = _htmlOriginalBoletin;
     }
+
+    ensureBoletinTemplate();
     
     // Restaurar visibilidad del dashboard si fue ocultado
     if (dashboardSection && dashboardSection.parentElement) {
@@ -805,6 +910,7 @@ function mostrarDashboardConDatos() {
         graficoMapa();
         graficoOportunidad();
         graficoDiasNotificacion();
+        renderBoletinEpidemiologico();
         
         // Forzar redimensionado después de render para que Plotly recalcule tamaños
         setTimeout(resizeTodosGraficos, 200);
@@ -829,7 +935,7 @@ function mostrarSinDatos() {
                 El evento <strong>#${eventoActual}</strong> aún no tiene datos procesados en el sistema.
             </p>
             <p class="sin-datos-dinamico-note">
-                Los datos se actualizarán automáticamente cada semana. Selecciona el evento 
+                Los datos se sincronizan automáticamente en tiempo real con el archivo depurado local. Selecciona el evento 
                 <strong class="sin-datos-dinamico-highlight">#549 - Morbilidad Materna Extrema</strong> para ver los análisis disponibles.
             </p>
         </div>
@@ -876,6 +982,10 @@ function cambiarVista(vista) {
     const btns = document.querySelectorAll('.tab-btn');
     if (vista === 'boletin' && btns[0]) btns[0].classList.add('active');
     if (vista === 'dashboard' && btns[1]) btns[1].classList.add('active');
+
+    if (vista === 'boletin') {
+        renderBoletinEpidemiologico();
+    }
     
     // Redimensionar gráficos al hacerse visible la sección
     setTimeout(resizeTodosGraficos, 150);
@@ -903,6 +1013,18 @@ function obtenerConfigPlotly() {
         displayModeBar: false,
         displaylogo: false
     };
+}
+
+function renderGraficoPlotly(graficoId, data, layout, config) {
+    const el = document.getElementById(graficoId);
+    if (!el) return;
+
+    if (el.data && typeof Plotly.react === 'function') {
+        Plotly.react(el, data, layout, config);
+        return;
+    }
+
+    Plotly.newPlot(graficoId, data, layout, config);
 }
 
 function obtenerAnchoUtilGrafico(graficoId) {
@@ -1119,11 +1241,11 @@ function graficoSemanas() {
 
     if (document.getElementById('grafico-semanas')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-semanas');
-        Plotly.newPlot('grafico-semanas', [traceBars, traceLine], layoutAjustado, config);
+        renderGraficoPlotly('grafico-semanas', [traceBars, traceLine], layoutAjustado, config);
     }
     if (document.getElementById('boletin-grafico-semanas')) {
         const layoutBoletin = aplicarEstiloBaseLayout(Object.assign({}, layout, { height: 300 }), 'boletin-grafico-semanas');
-        Plotly.newPlot('boletin-grafico-semanas', [traceBars, traceLine], layoutBoletin, config);
+        renderGraficoPlotly('boletin-grafico-semanas', [traceBars, traceLine], layoutBoletin, config);
     }
 }
 
@@ -1164,7 +1286,7 @@ function graficoComparativo() {
 
     if (document.getElementById('grafico-comparativo')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-comparativo');
-        Plotly.newPlot('grafico-comparativo', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-comparativo', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1196,7 +1318,7 @@ function graficoEdad() {
 
     if (document.getElementById('grafico-edad')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-edad', { barHorizontal: true });
-        Plotly.newPlot('grafico-edad', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-edad', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1233,7 +1355,7 @@ function graficoAfiliacion() {
 
     if (document.getElementById('grafico-afiliacion')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-afiliacion', { pie: true });
-        Plotly.newPlot('grafico-afiliacion', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-afiliacion', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1264,7 +1386,7 @@ function graficoCausas() {
 
     if (document.getElementById('grafico-causas')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-causas', { barHorizontal: true });
-        Plotly.newPlot('grafico-causas', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-causas', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1301,7 +1423,7 @@ function graficoMomento() {
 
     if (document.getElementById('grafico-momento')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-momento', { pie: true });
-        Plotly.newPlot('grafico-momento', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-momento', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1602,7 +1724,7 @@ function graficoOportunidad() {
 
     if (document.getElementById('grafico-oportunidad')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-oportunidad', { pie: true });
-        Plotly.newPlot('grafico-oportunidad', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-oportunidad', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1639,7 +1761,7 @@ function graficoDiasNotificacion() {
 
     if (document.getElementById('grafico-dias-notificacion')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-dias-notificacion');
-        Plotly.newPlot('grafico-dias-notificacion', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-dias-notificacion', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1674,7 +1796,7 @@ function graficoEdadSocio() {
 
     if (document.getElementById('grafico-edad-socio')) {
         const layoutAjustado = aplicarEstiloBaseLayout(layout, 'grafico-edad-socio', { barHorizontal: true });
-        Plotly.newPlot('grafico-edad-socio', data, layoutAjustado, obtenerConfigPlotly());
+        renderGraficoPlotly('grafico-edad-socio', data, layoutAjustado, obtenerConfigPlotly());
     }
 }
 
@@ -1816,7 +1938,7 @@ function actualizarBoletinDinamico() {
 // ====================================
 
 /**
- * Los datos se cargan automáticamente cada semana desde el servidor
+ * Los datos se cargan automáticamente en tiempo real desde el servidor
  * Esta función está reservada para futuras integraciones con el backend
  */
 async function cargarDatosDelServidor(codigoEvento) {
@@ -1829,12 +1951,2107 @@ async function cargarDatosDelServidor(codigoEvento) {
     return null;
 }
 
+let chartJsLoadPromise = null;
+let chartJsDataLabelsPromise = null;
+let geojsonRisaralda = null;
+let geojsonRisaraldaPromise = null;
+let resumenTerritorialActual = {
+    filas: [],
+    total: null,
+    numVivosDisponible: false
+};
+
+const CHARTJS_PALETTE = {
+    primary: '#1D4E89',
+    secondary: '#1F6B45',
+    warning: '#D9A404',
+    danger: '#C0392B',
+    neutral: '#6B7280',
+    lightBlue: '#73A9E6',
+    lightGreen: '#7CCBA2',
+    lightOrange: '#F0B64D',
+    lightRed: '#E5786D',
+    violet: '#7D6AE8'
+};
+
+const CHART_META = {
+    'grafico-semanas': {
+        title: 'Curva Epidemiologica - Casos de MME por Semana 2026',
+        subtitle: 'Numero de casos por semana epidemiologica y acumulado de casos en el periodo.'
+    },
+    'grafico-comparativo': {
+        title: 'Top 6 Complicaciones Graves Asociadas a MME',
+        subtitle: 'Porcentaje de casos con complicaciones clinicas graves sobre el total filtrado.'
+    },
+    'grafico-edad': {
+        title: 'Distribucion de Casos por Grupo de Edad',
+        subtitle: 'Conteo absoluto de casos de MME por rangos quinquenales de edad.'
+    },
+    'grafico-edad-socio': {
+        title: 'Perfil Etario de las Mujeres con MME',
+        subtitle: 'Frecuencia de casos por grupo de edad en la pestaña sociodemografica.'
+    },
+    'grafico-afiliacion': {
+        title: 'Pertenencia Etnica Reportada en Casos de MME',
+        subtitle: 'Participacion porcentual y conteo absoluto por categoria etnica.'
+    },
+    'grafico-vulnerables': {
+        title: 'Grupos Vulnerables Priorizados',
+        subtitle: 'Conteo de registros que reportan condicion de vulnerabilidad.'
+    },
+    'grafico-estrato-area': {
+        title: 'Estrato Socioeconomico por Area de Residencia',
+        subtitle: 'Distribucion apilada de casos por estrato y area urbana/rural.'
+    },
+    'grafico-causas': {
+        title: 'Top 8 Causas Agrupadas de MME',
+        subtitle: 'Principales causas clinicas registradas para los casos filtrados.'
+    },
+    'grafico-momento': {
+        title: 'Dias de Hospitalizacion por Caso',
+        subtitle: 'Conteo de casos segun rangos de estancia hospitalaria.'
+    },
+    'grafico-complicaciones-clinicas': {
+        title: 'Complicaciones Graves Asociadas',
+        subtitle: 'Numero de casos con hemorragia, eclampsia y otras complicaciones mayores.'
+    },
+    'grafico-semanas-gestacionales': {
+        title: 'Semanas Gestacionales al Momento del Evento',
+        subtitle: 'Tendencia de casos por rangos de semanas de gestacion reportadas.'
+    },
+    'grafico-mapa': {
+        title: 'Mapa de Riesgo por Municipio - Razon MME x 1.000 NV',
+        subtitle: 'Croquis municipal de la razon MME por 1.000 nacidos vivos.'
+    },
+    'grafico-area-territorial': {
+        title: 'Distribucion de Casos por Area de Residencia',
+        subtitle: 'Proporcion de casos segun area urbana, rural y categorias sin dato.'
+    },
+    'grafico-departamento-territorial': {
+        title: 'Casos por Departamento de Residencia',
+        subtitle: 'Conteo de casos por departamento; usa municipio cuando no hay departamento.'
+    },
+    'grafico-oportunidad': {
+        title: 'Completitud por Variable Critica',
+        subtitle: 'Porcentaje de registros completos para variables clave de vigilancia.'
+    },
+    'grafico-dias-notificacion': {
+        title: 'Tendencia Semanal de Calidad de Registro',
+        subtitle: 'Promedio semanal de completitud de variables criticas en los casos notificados.'
+    }
+};
+
+async function asegurarChartJsListo() {
+    if (window.Chart) return;
+    if (!chartJsLoadPromise) {
+        chartJsLoadPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js';
+            script.async = true;
+            script.onload = resolve;
+            script.onerror = () => reject(new Error('No fue posible cargar Chart.js'));
+            document.head.appendChild(script);
+        });
+    }
+    await chartJsLoadPromise;
+
+    if (!chartJsDataLabelsPromise && !window.ChartDataLabels) {
+        chartJsDataLabelsPromise = new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0';
+            script.async = true;
+            script.onload = resolve;
+            script.onerror = () => reject(new Error('No fue posible cargar chartjs-plugin-datalabels'));
+            document.head.appendChild(script);
+        });
+    }
+    if (chartJsDataLabelsPromise) {
+        await chartJsDataLabelsPromise;
+    }
+    if (window.ChartDataLabels && !Chart.registry.plugins.get('datalabels')) {
+        Chart.register(window.ChartDataLabels);
+    }
+}
+
+function toNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const clean = String(value).replace(',', '.').trim();
+    const num = Number(clean);
+    return Number.isFinite(num) ? num : null;
+}
+
+function normalizeText(value) {
+    return String(value || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .trim()
+        .toUpperCase();
+}
+
+function normalizeMunicipioKey(value) {
+    return normalizeText(value)
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+const RISARALDA_MUNICIPIOS = [
+    'Apía',
+    'Balboa',
+    'Belén de Umbría',
+    'Dosquebradas',
+    'Guática',
+    'La Celia',
+    'La Virginia',
+    'Marsella',
+    'Mistrató',
+    'Pereira',
+    'Pueblo Rico',
+    'Quinchía',
+    'Santa Rosa de Cabal',
+    'Santuario'
+];
+
+const RISARALDA_NV_REFERENCIA_2026 = {
+    [normalizeMunicipioKey('Apía')]: 15,
+    [normalizeMunicipioKey('Balboa')]: 6,
+    [normalizeMunicipioKey('Belén de Umbría')]: 15,
+    [normalizeMunicipioKey('Dosquebradas')]: 258,
+    [normalizeMunicipioKey('Guática')]: 9,
+    [normalizeMunicipioKey('La Celia')]: 11,
+    [normalizeMunicipioKey('La Virginia')]: 30,
+    [normalizeMunicipioKey('Marsella')]: 13,
+    [normalizeMunicipioKey('Mistrató')]: 38,
+    [normalizeMunicipioKey('Pereira')]: 485,
+    [normalizeMunicipioKey('Pueblo Rico')]: 66,
+    [normalizeMunicipioKey('Quinchía')]: 31,
+    [normalizeMunicipioKey('Santa Rosa de Cabal')]: 87,
+    [normalizeMunicipioKey('Santuario')]: 11
+};
+
+function boolLike(value) {
+    const txt = normalizeText(value);
+    return txt === 'SI' || txt === 'S' || txt === '1' || txt === 'TRUE' || txt === 'VERDADERO' || txt === 'Y' || txt === 'YES' || txt === 'X';
+}
+
+function pct(part, total) {
+    if (!total || total <= 0) return 0;
+    return (Number(part || 0) * 100) / total;
+}
+
+function formatPct(part, total, decimals = 1) {
+    return `${pct(part, total).toFixed(decimals)}%`;
+}
+
+function formatNumber(value, decimals = 0) {
+    const num = Number(value || 0);
+    if (!Number.isFinite(num)) return '0';
+    return num.toLocaleString('es-CO', {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+    });
+}
+
+function buildMapLegendHtml() {
+    return '';
+}
+
+function riskColorByRatio(razon) {
+    if (razon === null || razon === undefined || !Number.isFinite(Number(razon))) return '#D1D5DB';
+    const value = Number(razon || 0);
+    if (value > 150) return '#8B1A1A';
+    if (value >= 70) return '#F4B400';
+    return '#A8D5BA';
+}
+
+function riskClassByRatio(razon) {
+    if (razon === null || razon === undefined || !Number.isFinite(Number(razon))) {
+        return 'bg-slate-300 text-slate-700 font-semibold';
+    }
+    const value = Number(razon || 0);
+    if (value > 150) return 'bg-red-800 text-white font-semibold';
+    if (value >= 70) return 'bg-amber-400 text-amber-900 font-semibold';
+    return 'bg-green-200 text-green-900 font-semibold';
+}
+
+function riskLabelByRatio(razon) {
+    if (razon === null || razon === undefined || !Number.isFinite(Number(razon))) return 'SIN DATOS DE NV';
+    const value = Number(razon || 0);
+    if (value > 150) return 'ALTO RIESGO';
+    if (value >= 70) return 'RIESGO INTERMEDIO';
+    return 'RIESGO BAJO';
+}
+
+function toRoman(num) {
+    const map = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII'];
+    const n = Math.max(1, Math.min(13, Math.trunc(Number(num) || 1)));
+    return map[n] || 'I';
+}
+
+function buildTerritorialSubtitle(rows) {
+    let maxSemana = 8;
+    let anio = new Date().getFullYear();
+
+    rows.forEach((row) => {
+        const semana = toNumber(row.semana);
+        const y = toNumber(row.a_o);
+        if (semana !== null && semana > maxSemana) {
+            maxSemana = Math.trunc(semana);
+        }
+        if (y !== null && y > 1900) {
+            anio = Math.trunc(y);
+        }
+    });
+
+    const periodo = Math.ceil(maxSemana / 4);
+    return `Risaralda PE ${toRoman(periodo)} SE ${String(maxSemana).padStart(2, '0')}, ${anio}`;
+}
+
+function buildTerritorialSource(rows) {
+    let anio = new Date().getFullYear();
+    rows.forEach((row) => {
+        const y = toNumber(row.a_o);
+        if (y !== null && y > 1900) {
+            anio = Math.trunc(y);
+        }
+    });
+    return `Fuente: SIVIGILA ${anio}`;
+}
+
+function ensureChartTitlesAndSubtitles() {
+    Object.entries(CHART_META).forEach(([chartId, meta]) => {
+        const target = document.getElementById(chartId);
+        if (!target) return;
+
+        const box = target.closest('.grafico-box') || target.closest('.mapa-section');
+        if (!box) return;
+
+        const title = box.querySelector('h4');
+        if (title && meta.title) {
+            title.textContent = meta.title;
+        }
+
+        const subtitleId = `subtitle-${chartId}`;
+        let subtitle = box.querySelector(`#${subtitleId}`);
+        if (!subtitle) {
+            subtitle = document.createElement('p');
+            subtitle.id = subtitleId;
+            subtitle.className = 'chart-subtitle';
+            if (title) {
+                title.insertAdjacentElement('afterend', subtitle);
+            } else {
+                box.insertAdjacentElement('afterbegin', subtitle);
+            }
+        }
+        subtitle.textContent = meta.subtitle || '';
+    });
+
+    const legend = document.getElementById('leyenda-riesgo-mapa');
+    if (legend) {
+        legend.innerHTML = buildMapLegendHtml();
+        legend.style.display = 'none';
+    }
+}
+
+function clearAndGetCanvas(containerId, heightPx = 320) {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+
+    if (chartsEvento549[containerId]) {
+        chartsEvento549[containerId].destroy();
+        delete chartsEvento549[containerId];
+    }
+
+    container.innerHTML = '';
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '100%';
+    canvas.style.height = `${heightPx}px`;
+    container.appendChild(canvas);
+    return canvas;
+}
+
+function maybeShowNoData(containerId, message) {
+    const container = document.getElementById(containerId);
+    if (!container) return true;
+    container.innerHTML = `<div class="territorial-empty-cell">${message}</div>`;
+    return false;
+}
+
+function chartTooltipCallbacks(chartType) {
+    return {
+        title(items) {
+            if (!items || !items.length) return '';
+            return items[0].label || '';
+        },
+        label(context) {
+            const label = context.dataset?.label || 'Valor';
+            const value = Number(context.raw || 0);
+            return `${label}: ${formatNumber(value, 1)}`;
+        },
+        afterLabel(context) {
+            const value = Number(context.raw || 0);
+            if (chartType === 'pie' || chartType === 'doughnut') {
+                const all = context.dataset?.data || [];
+                const total = all.reduce((acc, n) => acc + Number(n || 0), 0);
+                return `Participacion: ${formatPct(value, total, 1)} (${formatNumber(value, 0)} casos)`;
+            }
+            return `Casos: ${formatNumber(value, 0)}`;
+        }
+    };
+}
+
+function chartDataLabelsConfig(chartType) {
+    if (chartType === 'pie' || chartType === 'doughnut') {
+        return {
+            color: '#1F2937',
+            font: { weight: '700', size: 10 },
+            formatter(value, ctx) {
+                const all = ctx.dataset?.data || [];
+                const total = all.reduce((acc, n) => acc + Number(n || 0), 0);
+                if (!total) return '0%';
+                return `${pct(value, total).toFixed(1)}%\n(${formatNumber(value, 0)})`;
+            }
+        };
+    }
+
+    return {
+        color: '#1F2937',
+        anchor: 'end',
+        align: 'end',
+        clamp: true,
+        offset: 2,
+        font: { weight: '700', size: 10 },
+        formatter(value) {
+            const num = Number(value || 0);
+            return Number.isFinite(num) ? formatNumber(num, 0) : '';
+        }
+    };
+}
+
+function renderChartJs(containerId, config, heightPx = 320) {
+    if (!window.Chart) return;
+    const canvas = clearAndGetCanvas(containerId, heightPx);
+    if (!canvas) return;
+
+    const chartType = config.type || 'bar';
+
+    const baseOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 180 },
+        plugins: {
+            legend: {
+                display: true,
+                position: 'top',
+                labels: {
+                    boxWidth: 12,
+                    usePointStyle: true,
+                    color: '#1F2937',
+                    font: { size: 11 }
+                }
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                callbacks: chartTooltipCallbacks(chartType)
+            },
+            datalabels: chartDataLabelsConfig(chartType)
+        }
+    };
+
+    const mergedOptions = {
+        ...baseOptions,
+        ...(config.options || {}),
+        plugins: {
+            ...baseOptions.plugins,
+            ...((config.options && config.options.plugins) || {})
+        }
+    };
+
+    chartsEvento549[containerId] = new Chart(canvas.getContext('2d'), {
+        ...config,
+        options: mergedOptions
+    });
+}
+
+function ensureExtraDashboardStructure() {
+    const resumenGrid = document.querySelector('#resumen .kpi-grid');
+    if (resumenGrid && !document.getElementById('kpi-letalidad')) {
+        const card = document.createElement('div');
+        card.className = 'kpi-card naranja';
+        card.innerHTML = [
+            '<div class="kpi-icon">⚕️</div>',
+            '<div class="kpi-label">% LETALIDAD</div>',
+            '<div class="kpi-valor" id="kpi-letalidad">—</div>',
+            '<div class="kpi-subtexto" id="kpi-letalidad-subtexto">Defuncion registrada</div>'
+        ].join('');
+        resumenGrid.appendChild(card);
+        resumenGrid.classList.remove('kpi-3col');
+        resumenGrid.classList.add('kpi-4col');
+    }
+
+    const socioTab = document.getElementById('sociodemografico');
+    if (socioTab && !document.getElementById('grafico-vulnerables')) {
+        const socioExtra = document.createElement('section');
+        socioExtra.className = 'graficos-grid grid-2col';
+        socioExtra.id = 'socio-extra-graficos';
+        socioExtra.innerHTML = [
+            '<div class="grafico-box"><h4>Grupos vulnerables reportados</h4><div id="grafico-vulnerables" class="chart-h-320"></div></div>',
+            '<div class="grafico-box"><h4>Estrato socioeconomico por area</h4><div id="grafico-estrato-area" class="chart-h-320"></div></div>'
+        ].join('');
+        const tabla = socioTab.querySelector('.tabla-section');
+        socioTab.insertBefore(socioExtra, tabla || null);
+    }
+
+    const clinicoTab = document.getElementById('clinico');
+    if (clinicoTab && !document.getElementById('grafico-complicaciones-clinicas')) {
+        const clinicoExtra = document.createElement('section');
+        clinicoExtra.className = 'graficos-grid grid-2col';
+        clinicoExtra.id = 'clinico-extra-graficos';
+        clinicoExtra.innerHTML = [
+            '<div class="grafico-box"><h4>Complicaciones graves asociadas</h4><div id="grafico-complicaciones-clinicas" class="chart-h-320"></div></div>',
+            '<div class="grafico-box"><h4>Semanas gestacionales al evento</h4><div id="grafico-semanas-gestacionales" class="chart-h-320"></div></div>'
+        ].join('');
+        const tabla = clinicoTab.querySelector('.tabla-section');
+        clinicoTab.insertBefore(clinicoExtra, tabla || null);
+    }
+
+    // Limpia inyecciones antiguas para priorizar la tabla oficial junto al mapa.
+    const territorialExtra = document.getElementById('territorial-extra-graficos');
+    if (territorialExtra) {
+        territorialExtra.remove();
+    }
+
+    ensureChartTitlesAndSubtitles();
+}
+
+function countBy(rows, mapper) {
+    const map = new Map();
+    rows.forEach((row) => {
+        const raw = mapper(row);
+        const key = (raw === null || raw === undefined || String(raw).trim() === '') ? 'SIN DATO' : String(raw).trim();
+        map.set(key, (map.get(key) || 0) + 1);
+    });
+    return [...map.entries()].map(([label, value]) => ({ label, value }));
+}
+
+function buildTerritorialSummary(rows) {
+    const summary = new Map();
+    let hasNumVivos = false;
+
+    RISARALDA_MUNICIPIOS.forEach((municipio) => {
+        const key = normalizeMunicipioKey(municipio);
+        summary.set(key, {
+            municipio,
+            casos: 0,
+            nacidosVivos: 0,
+            tieneNvFiltrado: false
+        });
+    });
+
+    rows.forEach((row) => {
+        const municipioRaw = String(row.nmun_resi || '').trim();
+        const municipio = municipioRaw || '';
+        const key = normalizeMunicipioKey(municipio);
+
+        // Solo tabla oficial de 14 municipios del departamento.
+        if (!summary.has(key)) {
+            return;
+        }
+
+        const item = summary.get(key);
+        item.casos += 1;
+
+        const numVivos = toNumber(row.num_vivos);
+        if (numVivos !== null) {
+            item.tieneNvFiltrado = true;
+            item.nacidosVivos += numVivos;
+        }
+    });
+
+    const filas = [...summary.entries()].map(([key, item]) => {
+        const nv = item.tieneNvFiltrado
+            ? item.nacidosVivos
+            : (RISARALDA_NV_REFERENCIA_2026[key] ?? null);
+        const razon = (nv === null)
+            ? null
+            : (nv > 0 ? (item.casos / nv) * 1000 : 0);
+        if (nv !== null) {
+            hasNumVivos = true;
+        }
+        return {
+            municipio: item.municipio,
+            casos: item.casos,
+            nacidosVivos: nv,
+            razon
+        };
+    }).sort((a, b) => {
+        const ra = Number.isFinite(Number(a.razon)) ? Number(a.razon) : -1;
+        const rb = Number.isFinite(Number(b.razon)) ? Number(b.razon) : -1;
+        if (rb !== ra) return rb - ra;
+        return b.casos - a.casos;
+    });
+
+    const totalCasos = filas.reduce((acc, row) => acc + row.casos, 0);
+    const totalNv = hasNumVivos
+        ? filas.reduce((acc, row) => acc + Number(row.nacidosVivos || 0), 0)
+        : null;
+    const totalRazon = hasNumVivos && Number(totalNv) > 0 ? (totalCasos / Number(totalNv)) * 1000 : null;
+
+    return {
+        filas,
+        total: {
+            municipio: 'Risaralda',
+            casos: totalCasos,
+            nacidosVivos: totalNv,
+            razon: totalRazon
+        },
+        numVivosDisponible: hasNumVivos
+    };
+}
+
+async function cargarGeojsonRisaralda() {
+    if (geojsonRisaralda) return geojsonRisaralda;
+    if (!geojsonRisaraldaPromise) {
+        geojsonRisaraldaPromise = fetch(`/api/geojson-risaralda?ts=${Date.now()}`, {
+            method: 'GET',
+            cache: 'no-store'
+        })
+            .then(async (response) => {
+                const payload = await response.json().catch(() => null);
+                if (!response.ok || !payload || !payload.ok || !payload.geojson) {
+                    throw new Error((payload && payload.error) || 'No se pudo cargar el croquis municipal');
+                }
+                geojsonRisaralda = payload.geojson;
+                return geojsonRisaralda;
+            })
+            .finally(() => {
+                geojsonRisaraldaPromise = null;
+            });
+    }
+    return geojsonRisaraldaPromise;
+}
+
+function featureMunicipioName(feature) {
+    if (!feature || !feature.properties) return 'SIN DATO';
+    const p = feature.properties;
+    return String(p.MpNombre || p.mpnombre || p.municipio || p.nombre || p.NAME || 'SIN DATO').trim();
+}
+
+function flattenCoordinates(geometry) {
+    if (!geometry || !geometry.type || !Array.isArray(geometry.coordinates)) return [];
+    if (geometry.type === 'Polygon') return [geometry.coordinates];
+    if (geometry.type === 'MultiPolygon') return geometry.coordinates;
+    return [];
+}
+
+function computeGeoBounds(features) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    features.forEach((feature) => {
+        const polygons = flattenCoordinates(feature.geometry);
+        polygons.forEach((polygon) => {
+            polygon.forEach((ring) => {
+                ring.forEach((coord) => {
+                    const x = Number(coord[0]);
+                    const y = Number(coord[1]);
+                    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                });
+            });
+        });
+    });
+
+    return {
+        minX,
+        minY,
+        maxX,
+        maxY,
+        width: Math.max(0.00001, maxX - minX),
+        height: Math.max(0.00001, maxY - minY)
+    };
+}
+
+function projectCoord(coord, bounds, width, height, pad) {
+    const x = pad + ((coord[0] - bounds.minX) / bounds.width) * (width - (pad * 2));
+    const y = pad + ((bounds.maxY - coord[1]) / bounds.height) * (height - (pad * 2));
+    return [x, y];
+}
+
+function polygonToPathD(polygons, bounds, width, height, pad) {
+    const parts = [];
+    polygons.forEach((polygon) => {
+        polygon.forEach((ring) => {
+            if (!Array.isArray(ring) || !ring.length) return;
+            const projected = ring.map((coord) => projectCoord(coord, bounds, width, height, pad));
+            const first = projected[0];
+            if (!first) return;
+            const cmds = [`M ${first[0].toFixed(2)} ${first[1].toFixed(2)}`];
+            for (let i = 1; i < projected.length; i += 1) {
+                cmds.push(`L ${projected[i][0].toFixed(2)} ${projected[i][1].toFixed(2)}`);
+            }
+            cmds.push('Z');
+            parts.push(cmds.join(' '));
+        });
+    });
+    return parts.join(' ');
+}
+
+function polygonLabelPoint(polygons, bounds, width, height, pad) {
+    if (!polygons.length || !polygons[0].length || !polygons[0][0].length) {
+        return [width / 2, height / 2];
+    }
+    const firstRing = polygons[0][0];
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    firstRing.forEach((coord) => {
+        minX = Math.min(minX, coord[0]);
+        minY = Math.min(minY, coord[1]);
+        maxX = Math.max(maxX, coord[0]);
+        maxY = Math.max(maxY, coord[1]);
+    });
+    const center = [(minX + maxX) / 2, (minY + maxY) / 2];
+    return projectCoord(center, bounds, width, height, pad);
+}
+
+function ensureMapTooltip(containerId = 'grafico-mapa') {
+    const container = document.getElementById(containerId);
+    if (!container) return null;
+    let tooltip = container.querySelector('.map-tooltip');
+    if (!tooltip) {
+        tooltip = document.createElement('div');
+        tooltip.className = 'map-tooltip';
+        container.appendChild(tooltip);
+    }
+    return tooltip;
+}
+
+function bindMapTooltipHandlers(pathEl, stats, containerId = 'grafico-mapa') {
+    const container = document.getElementById(containerId);
+    const tooltip = ensureMapTooltip(containerId);
+    if (!container || !tooltip) return;
+
+    const html = [
+        `<strong>${stats.municipio}</strong>`,
+        `<div>Nº casos: <strong>${formatNumber(stats.casos, 0)}</strong></div>`,
+        `<div>Nacidos vivos 2026: <strong>${stats.nacidosVivos === null ? '-' : formatNumber(stats.nacidosVivos, 0)}</strong></div>`,
+        `<div>Razon MME: <strong>${stats.razon === null ? '-' : formatNumber(stats.razon, 1)}</strong></div>`,
+        `<div>${riskLabelByRatio(stats.razon)}</div>`
+    ].join('');
+
+    const show = (ev) => {
+        tooltip.innerHTML = html;
+        tooltip.classList.add('visible');
+        const rect = container.getBoundingClientRect();
+        const x = (ev.clientX - rect.left) + 12;
+        const y = (ev.clientY - rect.top) + 12;
+        tooltip.style.left = `${x}px`;
+        tooltip.style.top = `${y}px`;
+    };
+
+    const hide = () => tooltip.classList.remove('visible');
+
+    pathEl.addEventListener('mousemove', show);
+    pathEl.addEventListener('mouseenter', show);
+    pathEl.addEventListener('mouseleave', hide);
+    pathEl.addEventListener('focus', (ev) => {
+        const bounds = pathEl.getBoundingClientRect();
+        const fakeEv = { clientX: bounds.left + (bounds.width / 2), clientY: bounds.top + (bounds.height / 2) };
+        show(fakeEv);
+    });
+    pathEl.addEventListener('blur', hide);
+}
+
+function renderSvgRisaraldaMap(summaryRows, containerId = 'grafico-mapa') {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    if (!geojsonRisaralda || !Array.isArray(geojsonRisaralda.features) || !geojsonRisaralda.features.length) {
+        if (containerId === 'grafico-mapa') {
+            maybeShowNoData('grafico-mapa', 'Croquis municipal no disponible. Carga el archivo de municipios para activar el mapa.');
+        } else {
+            container.innerHTML = '<div class="territorial-empty-cell">Croquis municipal no disponible.</div>';
+        }
+        return;
+    }
+
+    const width = 960;
+    const height = 620;
+    const pad = 18;
+    const features = geojsonRisaralda.features;
+    const bounds = computeGeoBounds(features);
+    const summaryMap = new Map(summaryRows.map((row) => [normalizeMunicipioKey(row.municipio), row]));
+
+    container.innerHTML = '';
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', 'Mapa de riesgo de Morbilidad Materna Extrema por municipio de Risaralda');
+
+    features.forEach((feature) => {
+        const municipio = featureMunicipioName(feature);
+        const key = normalizeMunicipioKey(municipio);
+        const stats = summaryMap.get(key) || {
+            municipio,
+            casos: 0,
+            nacidosVivos: null,
+            razon: null
+        };
+
+        const polygons = flattenCoordinates(feature.geometry);
+        const d = polygonToPathD(polygons, bounds, width, height, pad);
+        if (!d) return;
+
+        const path = document.createElementNS(svgNS, 'path');
+        path.setAttribute('d', d);
+        path.setAttribute('fill', riskColorByRatio(stats.razon));
+        path.setAttribute('class', 'map-svg-region');
+        path.setAttribute('tabindex', '0');
+        path.setAttribute('aria-label', `${municipio}, ${formatNumber(stats.casos, 0)} casos, razon ${stats.razon === null ? '-' : formatNumber(stats.razon, 1)}`);
+        const title = document.createElementNS(svgNS, 'title');
+        title.textContent = `${municipio} · Casos ${formatNumber(stats.casos, 0)} · NV ${stats.nacidosVivos === null ? '-' : formatNumber(stats.nacidosVivos, 0)} · Razon ${stats.razon === null ? '-' : formatNumber(stats.razon, 1)}`;
+        path.appendChild(title);
+        bindMapTooltipHandlers(path, stats, containerId);
+        svg.appendChild(path);
+
+        const labelPoint = polygonLabelPoint(polygons, bounds, width, height, pad);
+        const text = document.createElementNS(svgNS, 'text');
+        text.setAttribute('x', labelPoint[0].toFixed(1));
+        text.setAttribute('y', labelPoint[1].toFixed(1));
+        text.setAttribute('class', 'map-svg-label');
+        text.textContent = municipio.split(' ')[0];
+        svg.appendChild(text);
+    });
+
+    container.appendChild(svg);
+    ensureMapTooltip(containerId);
+}
+
+function getRows() {
+    return Array.isArray(cleanedData) ? cleanedData : [];
+}
+
+function buildAgeStats(rows) {
+    const ages = rows.map(r => toNumber(r.edad)).filter(v => v !== null && v >= 0);
+    if (!ages.length) {
+        return { promedio: 0, minima: 0, maxima: 0, moda: 0 };
+    }
+    const freq = new Map();
+    ages.forEach(a => freq.set(a, (freq.get(a) || 0) + 1));
+    const moda = [...freq.entries()].sort((a, b) => b[1] - a[1])[0][0];
+    return {
+        promedio: (ages.reduce((acc, a) => acc + a, 0) / ages.length).toFixed(1),
+        minima: Math.min(...ages),
+        maxima: Math.max(...ages),
+        moda
+    };
+}
+
+function buildAgeBins(rows) {
+    const bins = [
+        { label: '10-14', min: 10, max: 14 },
+        { label: '15-19', min: 15, max: 19 },
+        { label: '20-24', min: 20, max: 24 },
+        { label: '25-29', min: 25, max: 29 },
+        { label: '30-34', min: 30, max: 34 },
+        { label: '35-39', min: 35, max: 39 },
+        { label: '40-44', min: 40, max: 44 },
+        { label: '>=45', min: 45, max: 200 }
+    ];
+    const counts = bins.map(() => 0);
+    rows.forEach((row) => {
+        const edad = toNumber(row.edad);
+        if (edad === null) return;
+        const idx = bins.findIndex(b => edad >= b.min && edad <= b.max);
+        if (idx >= 0) counts[idx] += 1;
+    });
+    return bins.map((b, i) => ({ grupo: b.label, casos: counts[i], porcentaje: pct(counts[i], rows.length).toFixed(1) }));
+}
+
+function buildSemanas(rows) {
+    const sem = new Map();
+    rows.forEach((row) => {
+        const semanaRaw = toNumber(row.semana);
+        if (semanaRaw === null || semanaRaw <= 0) return;
+        const semana = Math.trunc(semanaRaw);
+        const anioRaw = toNumber(row.a_o);
+        const anio = anioRaw !== null && anioRaw > 1900 ? Math.trunc(anioRaw) : new Date().getFullYear();
+        const key = `${anio}-S${String(semana).padStart(2, '0')}`;
+        sem.set(key, (sem.get(key) || 0) + 1);
+    });
+
+    const sorted = [...sem.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    return sorted.map(([semana, casos]) => ({ semana, casos }));
+}
+
+function buildCalidad(rows, baseCalidad = {}) {
+    const total = rows.length;
+    const criticas = ['edad', 'semana', 'a_o', 'pac_hos', 'nmun_resi', 'caus_agrup'];
+
+    const completos = rows.filter((row) => criticas.every((c) => String(row[c] ?? '').trim() !== '')).length;
+    const signatures = new Set(rows.map((r) => criticas.map(c => String(r[c] ?? '').trim()).join('|')));
+
+    const diasNotif = rows
+        .map(r => toNumber(r.dias_notificacion))
+        .filter(v => v !== null && v >= 0);
+    const oportuna = diasNotif.filter(v => v <= 7).length;
+    const tardia = diasNotif.filter(v => v > 7).length;
+
+    return {
+        notificacionOportuna: diasNotif.length ? oportuna : Number(baseCalidad.notificacionOportuna || 0),
+        notificacionTardia: diasNotif.length ? tardia : Number(baseCalidad.notificacionTardia || 0),
+        porcentajeOportunidad: diasNotif.length ? pct(oportuna, diasNotif.length) : Number(baseCalidad.porcentajeOportunidad || 0),
+        completitud: total ? pct(completos, total) : 0,
+        porcentajeSinDuplicados: total ? pct(signatures.size, total) : 0,
+        diasPromedioNotificacion: diasNotif.length ? (diasNotif.reduce((a, b) => a + b, 0) / diasNotif.length) : null
+    };
+}
+
+function buildDatosDesdeCleanedData(payload) {
+    const base = construirDatosDesdePayload(payload);
+    const rows = getRows();
+    const total = rows.length || Number(payload.total_casos || base.totalCasos || 0);
+
+    const semanas = buildSemanas(rows);
+    const gruposEdad = buildAgeBins(rows);
+    const edadEstadisticas = buildAgeStats(rows);
+
+    const hospitalizadas = rows.filter(r => boolLike(r.pac_hos)).length;
+    const uci = rows.filter(r => boolLike(r.ingres_uci)).length;
+    const defuncion = rows.filter(r => String(r.fec_def || '').trim() !== '').length;
+
+    const calidad = buildCalidad(rows, base.calidad || {});
+
+    return {
+        ...base,
+        totalCasos: total,
+        semanas,
+        gruposEdad,
+        edadEstadisticas,
+        afiliacion: countBy(rows, r => r.per_etn).sort((a, b) => b.value - a.value).slice(0, 8).map(it => ({
+            tipo: it.label,
+            casos: it.value,
+            porcentaje: pct(it.value, total).toFixed(1)
+        })),
+        causas: countBy(rows, r => r.caus_agrup).sort((a, b) => b.value - a.value).slice(0, 10).map(it => ({
+            causa: it.label,
+            casos: it.value,
+            porcentaje: pct(it.value, total).toFixed(1)
+        })),
+        municipios: countBy(rows, r => r.nmun_resi).sort((a, b) => b.value - a.value).map((item) => ({
+            nombre: item.label,
+            casos: item.value,
+            porcentaje: pct(item.value, total).toFixed(1)
+        })),
+        momentoEvento: countBy(rows, r => r.term_gesta).sort((a, b) => b.value - a.value).slice(0, 8).map(it => ({
+            momento: it.label,
+            casos: it.value,
+            porcentaje: pct(it.value, total).toFixed(1)
+        })),
+        calidad: {
+            ...(base.calidad || {}),
+            ...calidad,
+            hospitalizacion: hospitalizadas,
+            porcentajeHospitalizacion: pct(hospitalizadas, total),
+            requiereUCI: uci,
+            porcentajeUCI: pct(uci, total),
+            letalidad: pct(defuncion, total)
+        }
+    };
+}
+
+function boletinTemplateHtml() {
+    return `
+        <div class="boletin-actions no-print mb-4 flex flex-wrap items-center gap-3">
+            <button id="btn-generar-boletin" class="inline-flex items-center justify-center rounded-md bg-[#1D4E89] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#163A66]">
+                Generar / Actualizar Boletin
+            </button>
+            <button id="btn-descargar-boletin" class="inline-flex items-center justify-center rounded-md bg-[#0F766E] px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-[#0b5a55]">
+                Descargar como PDF
+            </button>
+            <span class="text-xs text-slate-600">Fuente dinamica: cleanedData (archivo depurado en tiempo real)</span>
+        </div>
+
+        <article id="boletin-print-root" class="boletin-pdf-surface rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <header class="boletin-print-section rounded-lg border border-slate-200 bg-slate-50 p-5">
+                <p class="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1D4E89]">Secretaria de Salud Departamental - Risaralda</p>
+                <h2 id="evento-titulo-boletin" class="text-2xl font-bold text-slate-900">Boletin Epidemiologico - Morbilidad Materna Extrema</h2>
+                <p id="boletin-periodo-dinamico" class="mt-1 text-sm text-slate-600">Periodo Epidemiologico II Semana Epidemiologica 08, 2026</p>
+                <div class="mt-4 grid gap-3 md:grid-cols-4">
+                    <div class="rounded-md border border-slate-200 bg-white p-3 text-center">
+                        <p id="boletin-casos" class="text-3xl font-extrabold text-[#1D4E89]">0</p>
+                        <p class="text-xs font-medium text-slate-600">Casos reportados</p>
+                    </div>
+                    <div class="rounded-md border border-slate-200 bg-white p-3 text-center">
+                        <p id="boletin-variacion" class="text-xl font-bold text-[#0F766E]">N/D</p>
+                        <p class="text-xs font-medium text-slate-600">Variacion vs mismo periodo previo</p>
+                    </div>
+                    <div class="rounded-md border border-slate-200 bg-white p-3 text-center">
+                        <p id="boletin-razon-departamental" class="text-2xl font-bold text-[#B45309]">0.0</p>
+                        <p class="text-xs font-medium text-slate-600">Razon MME departamental x 1.000 NV</p>
+                    </div>
+                    <div class="rounded-md border border-slate-200 bg-white p-3 text-center">
+                        <p id="boletin-hospitalizados" class="text-2xl font-bold text-slate-800">0</p>
+                        <p class="text-xs font-medium text-slate-600">Hospitalizadas</p>
+                    </div>
+                </div>
+                <p class="mt-2 text-xs text-slate-500">Semana epidemiologica: <span id="boletin-semana">08</span> | <span id="metodologia-periodo">Año 2026</span> | Actualizado: <span id="boletin-fecha">--</span></p>
+            </header>
+
+            <section class="boletin-print-section mt-4 rounded-lg border border-slate-200 p-4">
+                <h3 class="mb-2 text-base font-bold text-[#1D4E89]">1. Introduccion</h3>
+                <textarea id="boletin-introduccion-texto" class="boletin-editor-textarea h-36 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700"></textarea>
+            </section>
+
+            <section class="boletin-print-section mt-4 rounded-lg border border-slate-200 p-4">
+                <h3 class="mb-2 text-base font-bold text-[#1D4E89]">2. Comportamiento en Risaralda</h3>
+                <div class="rounded-md border border-slate-200 p-3">
+                    <h4 class="mb-2 text-sm font-semibold text-slate-700">Comportamiento de la notificacion por semana epidemiologica</h4>
+                    <canvas id="boletin-chart-curva" height="260"></canvas>
+                </div>
+                <div class="mt-3 grid gap-3 md:grid-cols-3">
+                    <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                        <div id="boletin-kpi-total" class="text-xl font-bold text-[#1D4E89]">0</div>
+                        <div class="text-xs text-slate-600">Total casos</div>
+                    </div>
+                    <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                        <div id="boletin-kpi-variacion" class="text-xl font-bold text-[#0F766E]">N/D</div>
+                        <div class="text-xs text-slate-600">Variacion %</div>
+                    </div>
+                    <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                        <div id="boletin-kpi-razon" class="text-xl font-bold text-[#B45309]">0.0</div>
+                        <div class="text-xs text-slate-600">Razon departamental</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="boletin-print-section mt-4 rounded-lg border border-slate-200 p-4">
+                <h3 class="mb-2 text-base font-bold text-[#1D4E89]">3. Variables Sociodemograficas</h3>
+                <div class="grid gap-3 md:grid-cols-2">
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Distribucion por edad</h4><canvas id="boletin-chart-edad" height="220"></canvas></div>
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Distribucion por area de residencia</h4><canvas id="boletin-chart-area" height="220"></canvas></div>
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Distribucion por estrato</h4><canvas id="boletin-chart-estrato" height="220"></canvas></div>
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Distribucion por afiliacion</h4><canvas id="boletin-chart-afiliacion" height="220"></canvas></div>
+                </div>
+                <div class="mt-3 rounded-md border border-slate-200 p-3">
+                    <h4 class="mb-2 text-sm font-semibold">Pertenencia etnica</h4>
+                    <canvas id="boletin-chart-etnia" height="220"></canvas>
+                </div>
+                <div class="mt-3 overflow-x-auto rounded-md border border-slate-200">
+                    <table class="w-full border-collapse text-sm">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th class="border border-slate-300 px-3 py-2 text-left">Grupo de edad</th>
+                                <th class="border border-slate-300 px-3 py-2 text-center">N° casos</th>
+                                <th class="border border-slate-300 px-3 py-2 text-center">Porcentaje</th>
+                            </tr>
+                        </thead>
+                        <tbody id="boletin-tabla-edad-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="boletin-print-section mt-4 rounded-lg border border-slate-200 p-4">
+                <h3 class="mb-2 text-base font-bold text-[#1D4E89]">4. Variables Clinicas</h3>
+                <div class="grid gap-3 md:grid-cols-2">
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Momento del evento</h4><canvas id="boletin-chart-momento" height="220"></canvas></div>
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Semanas de gestacion</h4><canvas id="boletin-chart-semanas-gest" height="220"></canvas></div>
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Causas agrupadas</h4><canvas id="boletin-chart-causas" height="220"></canvas></div>
+                    <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Complicaciones especificas</h4><canvas id="boletin-chart-complicaciones" height="220"></canvas></div>
+                </div>
+                <div class="mt-3 overflow-x-auto rounded-md border border-slate-200">
+                    <table class="w-full border-collapse text-sm">
+                        <thead class="bg-slate-100">
+                            <tr>
+                                <th class="border border-slate-300 px-3 py-2 text-left">Causa agrupada</th>
+                                <th class="border border-slate-300 px-3 py-2 text-center">Casos</th>
+                                <th class="border border-slate-300 px-3 py-2 text-center">%</th>
+                            </tr>
+                        </thead>
+                        <tbody id="boletin-tabla-causas-body"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="boletin-print-section mt-4 rounded-lg border border-slate-200 p-4">
+                <h3 class="mb-2 text-base font-bold text-[#1D4E89]">5. Indicadores de Interes Epidemiologico y Razon por Municipio</h3>
+                <p id="boletin-nv-warning" class="mb-2 hidden rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"></p>
+                <div class="grid gap-3 lg:grid-cols-2">
+                    <div class="overflow-x-auto rounded-md border border-slate-200">
+                        <table class="tabla-territorial w-full border-collapse text-sm">
+                            <thead>
+                                <tr>
+                                    <th class="territorial-col-name">Municipio</th>
+                                    <th class="territorial-col-cases">N° casos</th>
+                                    <th class="territorial-col-nv">Nacidos vivos 2026</th>
+                                    <th class="territorial-col-ratio">Razon MME</th>
+                                </tr>
+                            </thead>
+                            <tbody id="boletin-tabla-municipal-body"></tbody>
+                            <tfoot id="boletin-tabla-municipal-total"></tfoot>
+                        </table>
+                    </div>
+                    <div class="rounded-md border border-slate-200 p-3">
+                        <h4 class="mb-2 text-sm font-semibold">Mapa de Riesgo por Municipio</h4>
+                        <div id="boletin-mapa-risaralda" class="h-[420px] rounded-md border border-slate-200 bg-slate-100"></div>
+                        <div class="boletin-map-legend mt-2 grid grid-cols-1 gap-1 text-xs text-slate-700">
+                            <div><span class="inline-block h-3 w-4 bg-[#8B1A1A]"></span> Rojo: mayor riesgo (&gt; 150)</div>
+                            <div><span class="inline-block h-3 w-4 bg-[#F4B400]"></span> Amarillo: riesgo intermedio (70 a 150)</div>
+                            <div><span class="inline-block h-3 w-4 bg-[#A8D5BA]"></span> Verde: menor riesgo (&lt; 70)</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="boletin-print-section mt-4 rounded-lg border border-slate-200 p-4">
+                <h3 class="mb-2 text-base font-bold text-[#1D4E89]">6. Conclusiones</h3>
+                <textarea id="boletin-conclusiones-texto" class="boletin-editor-textarea h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700"></textarea>
+                <h3 class="mb-2 mt-4 text-base font-bold text-[#1D4E89]">7. Observaciones</h3>
+                <textarea id="boletin-observaciones-texto" class="boletin-editor-textarea h-24 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700"></textarea>
+            </section>
+        </article>
+    `;
+}
+
+function boletinGetValue(row, keys) {
+    for (const key of keys) {
+        const raw = row && Object.prototype.hasOwnProperty.call(row, key) ? row[key] : null;
+        const txt = String(raw ?? '').trim();
+        if (txt) return txt;
+    }
+    return 'SIN DATO';
+}
+
+function ensureBoletinTemplate() {
+    const section = document.getElementById('boletin');
+    if (!section) return;
+
+    if (!section.querySelector('#boletin-print-root')) {
+        section.innerHTML = boletinTemplateHtml();
+    }
+
+    const intro = document.getElementById('boletin-introduccion-texto');
+    const conclusiones = document.getElementById('boletin-conclusiones-texto');
+    const observaciones = document.getElementById('boletin-observaciones-texto');
+
+    if (intro && !intro.value.trim()) {
+        intro.value = BOLETIN_TEXTOS_DEFAULT.introduccion;
+    }
+    if (conclusiones && !conclusiones.value.trim()) {
+        conclusiones.value = BOLETIN_TEXTOS_DEFAULT.conclusiones;
+    }
+    if (observaciones && !observaciones.value.trim()) {
+        observaciones.value = BOLETIN_TEXTOS_DEFAULT.observaciones;
+    }
+
+    if (!section.dataset.boletinBound) {
+        const btnGenerar = document.getElementById('btn-generar-boletin');
+        const btnPdf = document.getElementById('btn-descargar-boletin');
+        if (btnGenerar) {
+            btnGenerar.addEventListener('click', () => {
+                renderBoletinEpidemiologico();
+            });
+        }
+        if (btnPdf) {
+            btnPdf.addEventListener('click', () => {
+                descargarBoletinComoPdf();
+            });
+        }
+        section.dataset.boletinBound = '1';
+    }
+}
+
+function buildBoletinTemporalStats(rows) {
+    const validRows = Array.isArray(rows) ? rows : [];
+    const years = validRows
+        .map((row) => toNumber(row.a_o))
+        .filter((value) => value !== null && value > 1900)
+        .map((value) => Math.trunc(value));
+
+    const anioActual = years.length ? Math.max(...years) : (Number(datosActuales.año) || new Date().getFullYear());
+
+    const weekRows = validRows
+        .map((row) => ({
+            year: Math.trunc(toNumber(row.a_o) || anioActual),
+            week: Math.trunc(toNumber(row.semana) || 0)
+        }))
+        .filter((item) => item.week > 0 && item.week <= 53 && item.year === anioActual);
+
+    const semanaMax = weekRows.length
+        ? Math.max(...weekRows.map((item) => item.week))
+        : Math.max(1, ...((datosActuales.semanas || []).map((item) => Math.trunc(Number(item.semana || 0))).filter((v) => v > 0)));
+
+    const anioPrevio = anioActual - 1;
+    const casosActualesPeriodo = validRows.filter((row) => {
+        const y = Math.trunc(toNumber(row.a_o) || anioActual);
+        const w = Math.trunc(toNumber(row.semana) || 0);
+        return y === anioActual && w > 0 && w <= semanaMax;
+    }).length;
+
+    const casosPrevioPeriodo = validRows.filter((row) => {
+        const y = Math.trunc(toNumber(row.a_o) || anioActual);
+        const w = Math.trunc(toNumber(row.semana) || 0);
+        return y === anioPrevio && w > 0 && w <= semanaMax;
+    }).length;
+
+    const variacion = casosPrevioPeriodo > 0
+        ? (((casosActualesPeriodo - casosPrevioPeriodo) / casosPrevioPeriodo) * 100)
+        : null;
+
+    return {
+        anioActual,
+        anioPrevio,
+        semanaMax,
+        periodo: Math.max(1, Math.ceil(semanaMax / 4)),
+        casosActualesPeriodo,
+        casosPrevioPeriodo,
+        variacion
+    };
+}
+
+function renderBoletinChartJs(chartId, config) {
+    const canvas = document.getElementById(chartId);
+    if (!canvas || !window.Chart) return;
+
+    if (boletinChartsEvento549[chartId]) {
+        boletinChartsEvento549[chartId].destroy();
+        delete boletinChartsEvento549[chartId];
+    }
+
+    const optionsBase = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                labels: {
+                    boxWidth: 12,
+                    font: { size: 11 }
+                }
+            }
+        }
+    };
+
+    boletinChartsEvento549[chartId] = new Chart(canvas.getContext('2d'), {
+        ...config,
+        options: {
+            ...optionsBase,
+            ...(config.options || {}),
+            plugins: {
+                ...optionsBase.plugins,
+                ...((config.options && config.options.plugins) || {})
+            }
+        }
+    });
+}
+
+function fillBoletinAgeTable(ageRows, total) {
+    const tbody = document.getElementById('boletin-tabla-edad-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    ageRows.forEach((item) => {
+        const casos = Number(item.casos || 0);
+        const pctTxt = total > 0 ? `${((casos * 100) / total).toFixed(1)}%` : '0.0%';
+        tbody.innerHTML += `
+            <tr>
+                <td class="border border-slate-300 px-3 py-2">${item.grupo}</td>
+                <td class="border border-slate-300 px-3 py-2 text-center">${formatNumber(casos, 0)}</td>
+                <td class="border border-slate-300 px-3 py-2 text-center">${pctTxt}</td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML += `
+        <tr class="bg-slate-100 font-semibold">
+            <td class="border border-slate-300 px-3 py-2">TOTAL</td>
+            <td class="border border-slate-300 px-3 py-2 text-center">${formatNumber(total, 0)}</td>
+            <td class="border border-slate-300 px-3 py-2 text-center">100.0%</td>
+        </tr>
+    `;
+}
+
+function fillBoletinCausasTable(causasRows, total) {
+    const tbody = document.getElementById('boletin-tabla-causas-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    causasRows.forEach((item) => {
+        const pctTxt = total > 0 ? `${((Number(item.value || 0) * 100) / total).toFixed(1)}%` : '0.0%';
+        tbody.innerHTML += `
+            <tr>
+                <td class="border border-slate-300 px-3 py-2">${item.label}</td>
+                <td class="border border-slate-300 px-3 py-2 text-center">${formatNumber(item.value, 0)}</td>
+                <td class="border border-slate-300 px-3 py-2 text-center">${pctTxt}</td>
+            </tr>
+        `;
+    });
+}
+
+function fillBoletinMunicipalTable(filas, total) {
+    const tbody = document.getElementById('boletin-tabla-municipal-body');
+    const tfoot = document.getElementById('boletin-tabla-municipal-total');
+    if (!tbody || !tfoot) return;
+
+    tbody.innerHTML = '';
+    tfoot.innerHTML = '';
+
+    filas.forEach((row) => {
+        const ratioClass = riskClassByRatio(row.razon);
+        const nvTxt = row.nacidosVivos === null ? '-' : formatNumber(row.nacidosVivos, 0);
+        const razonTxt = row.razon === null ? '-' : formatNumber(row.razon, 1);
+
+        tbody.innerHTML += `
+            <tr>
+                <td class="territorial-cell-name">${row.municipio}</td>
+                <td class="territorial-cell-cases">${formatNumber(row.casos, 0)}</td>
+                <td class="territorial-cell-nv">${nvTxt}</td>
+                <td class="territorial-cell-ratio ${ratioClass}">${razonTxt}</td>
+            </tr>
+        `;
+    });
+
+    if (total) {
+        const totalClass = riskClassByRatio(total.razon);
+        const totalNvTxt = total.nacidosVivos === null ? '-' : formatNumber(total.nacidosVivos, 0);
+        const totalRazonTxt = total.razon === null ? '-' : formatNumber(total.razon, 1);
+        tfoot.innerHTML = `
+            <tr class="territorial-total-row font-semibold">
+                <td class="territorial-cell-name">Risaralda</td>
+                <td class="territorial-cell-cases">${formatNumber(total.casos, 0)}</td>
+                <td class="territorial-cell-nv">${totalNvTxt}</td>
+                <td class="territorial-cell-ratio ${totalClass}">${totalRazonTxt}</td>
+            </tr>
+        `;
+    }
+}
+
+function renderBoletinEpidemiologico() {
+    ensureBoletinTemplate();
+
+    const rows = getRows();
+    const total = rows.length;
+    const temporal = buildBoletinTemporalStats(rows);
+    const resumenMunicipal = buildTerritorialSummary(rows);
+    const razonDepto = resumenMunicipal.total && Number.isFinite(Number(resumenMunicipal.total.razon))
+        ? Number(resumenMunicipal.total.razon)
+        : null;
+    const hospitalizadas = rows.filter((row) => boolLike(row.pac_hos)).length;
+
+    const periodoTxt = `Periodo Epidemiologico ${toRoman(temporal.periodo)} Semana Epidemiologica ${String(temporal.semanaMax).padStart(2, '0')}, ${temporal.anioActual}`;
+    const variacionTxt = temporal.variacion === null
+        ? 'Sin base de comparacion'
+        : `${temporal.variacion >= 0 ? 'Aumento' : 'Disminucion'} ${Math.abs(temporal.variacion).toFixed(1)}%`;
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+
+    setText('boletin-periodo-dinamico', periodoTxt);
+    setText('boletin-semana', String(temporal.semanaMax).padStart(2, '0'));
+    setText('boletin-casos', formatNumber(total, 0));
+    setText('boletin-hospitalizados', formatNumber(hospitalizadas, 0));
+    setText('boletin-variacion', variacionTxt);
+    setText('boletin-kpi-total', formatNumber(total, 0));
+    setText('boletin-kpi-variacion', variacionTxt);
+    setText('boletin-kpi-razon', razonDepto === null ? 'N/D' : formatNumber(razonDepto, 1));
+    setText('boletin-razon-departamental', razonDepto === null ? 'N/D' : formatNumber(razonDepto, 1));
+    setText('metodologia-periodo', `Año ${temporal.anioActual}`);
+    setText('boletin-fecha', datosActuales.fechaActualizacion || new Date().toLocaleString('es-CO'));
+
+    const variacionEl = document.getElementById('boletin-variacion');
+    if (variacionEl) {
+        if (temporal.variacion === null) {
+            variacionEl.style.color = '#475569';
+        } else if (temporal.variacion >= 0) {
+            variacionEl.style.color = '#C2410C';
+        } else {
+            variacionEl.style.color = '#0F766E';
+        }
+    }
+
+    const weekMap = new Map();
+    rows.forEach((row) => {
+        const y = Math.trunc(toNumber(row.a_o) || temporal.anioActual);
+        const w = Math.trunc(toNumber(row.semana) || 0);
+        if (y !== temporal.anioActual || w <= 0 || w > temporal.semanaMax) return;
+        weekMap.set(w, (weekMap.get(w) || 0) + 1);
+    });
+    const weeklyRows = weekMap.size
+        ? [...weekMap.entries()].sort((a, b) => a[0] - b[0]).map(([week, cases]) => ({ week, cases }))
+        : (datosActuales.semanas || []).map((item) => ({ week: Number(item.semana || 0), cases: Number(item.casos || 0) })).filter((item) => item.week > 0);
+
+    const weeklyLabels = weeklyRows.map((item) => `SE ${String(item.week).padStart(2, '0')}`);
+    const weeklyCases = weeklyRows.map((item) => item.cases);
+    const weeklyAcum = [];
+    weeklyCases.reduce((acc, value, index) => {
+        const sum = acc + Number(value || 0);
+        weeklyAcum[index] = sum;
+        return sum;
+    }, 0);
+
+    renderBoletinChartJs('boletin-chart-curva', {
+        type: 'bar',
+        data: {
+            labels: weeklyLabels,
+            datasets: [
+                { label: 'Casos por SE', data: weeklyCases, backgroundColor: CHARTJS_PALETTE.primary },
+                { label: 'Acumulado', data: weeklyAcum, type: 'line', borderColor: CHARTJS_PALETTE.warning, backgroundColor: CHARTJS_PALETTE.warning, tension: 0.25, pointRadius: 2, yAxisID: 'y1' }
+            ]
+        },
+        options: {
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: 'Casos' } },
+                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Acumulado' } }
+            }
+        }
+    });
+
+    const ageRows = (datosActuales.gruposEdad && datosActuales.gruposEdad.length)
+        ? datosActuales.gruposEdad.map((item) => ({ grupo: item.grupo, casos: Number(item.casos || 0) }))
+        : buildAgeBins(rows).map((item) => ({ grupo: item.grupo, casos: Number(item.casos || 0) }));
+
+    renderBoletinChartJs('boletin-chart-edad', {
+        type: 'bar',
+        data: {
+            labels: ageRows.map((item) => item.grupo),
+            datasets: [{ label: 'Casos', data: ageRows.map((item) => item.casos), backgroundColor: CHARTJS_PALETTE.lightBlue }]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+    });
+    fillBoletinAgeTable(ageRows, total);
+
+    const areaRows = countBy(rows, (row) => row.area).sort((a, b) => b.value - a.value).slice(0, 6);
+    renderBoletinChartJs('boletin-chart-area', {
+        type: 'doughnut',
+        data: {
+            labels: areaRows.map((item) => item.label),
+            datasets: [{ label: 'Area residencia', data: areaRows.map((item) => item.value), backgroundColor: [CHARTJS_PALETTE.primary, CHARTJS_PALETTE.secondary, CHARTJS_PALETTE.warning, CHARTJS_PALETTE.lightOrange, CHARTJS_PALETTE.lightGreen, CHARTJS_PALETTE.neutral] }]
+        }
+    });
+
+    const estratos = ['1', '2', '3', '4', '5', '6', 'SIN DATO'];
+    const estratoRows = estratos.map((label) => ({
+        label,
+        value: rows.filter((row) => (String(row.estrato || '').trim() || 'SIN DATO') === label).length
+    }));
+    renderBoletinChartJs('boletin-chart-estrato', {
+        type: 'bar',
+        data: {
+            labels: estratoRows.map((item) => item.label),
+            datasets: [{ label: 'Casos por estrato', data: estratoRows.map((item) => item.value), backgroundColor: CHARTJS_PALETTE.secondary }]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+    });
+
+    const afMap = { '1': 'Contributivo', '2': 'Subsidiado', '3': 'Especial', '4': 'Excepcion', '5': 'No asegurado', C: 'Contributivo', S: 'Subsidiado', E: 'Especial' };
+    const afiliacionRows = countBy(rows, (row) => {
+        const raw = boletinGetValue(row, ['tip_ss_', 'tip_ss', 'afiliacion', 'tipo_afiliacion', 'regimen']);
+        const key = normalizeText(raw);
+        return afMap[key] || raw;
+    }).sort((a, b) => b.value - a.value).slice(0, 6);
+    renderBoletinChartJs('boletin-chart-afiliacion', {
+        type: 'bar',
+        data: {
+            labels: afiliacionRows.map((item) => item.label),
+            datasets: [{ label: 'Casos por afiliacion', data: afiliacionRows.map((item) => item.value), backgroundColor: CHARTJS_PALETTE.lightOrange }]
+        },
+        options: { indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+    });
+
+    const etniaRows = countBy(rows, (row) => row.per_etn).sort((a, b) => b.value - a.value).slice(0, 8);
+    renderBoletinChartJs('boletin-chart-etnia', {
+        type: 'bar',
+        data: {
+            labels: etniaRows.map((item) => item.label),
+            datasets: [{ label: 'Casos por pertenencia etnica', data: etniaRows.map((item) => item.value), backgroundColor: CHARTJS_PALETTE.lightGreen }]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+    });
+
+    const momentoBuckets = { 'Antes del parto': 0, 'Durante el parto': 0, Puerperio: 0, 'Sin dato': 0 };
+    rows.forEach((row) => {
+        const txt = normalizeText(row.term_gesta || row.momento_evento || 'SIN DATO');
+        if (txt.includes('PUERP')) {
+            momentoBuckets.Puerperio += 1;
+        } else if (txt.includes('PART')) {
+            momentoBuckets['Durante el parto'] += 1;
+        } else if (txt.includes('EMBAR') || txt.includes('GEST') || txt.includes('ANTE')) {
+            momentoBuckets['Antes del parto'] += 1;
+        } else {
+            momentoBuckets['Sin dato'] += 1;
+        }
+    });
+    renderBoletinChartJs('boletin-chart-momento', {
+        type: 'pie',
+        data: {
+            labels: Object.keys(momentoBuckets),
+            datasets: [{ label: 'Momento del evento', data: Object.values(momentoBuckets), backgroundColor: [CHARTJS_PALETTE.primary, CHARTJS_PALETTE.warning, CHARTJS_PALETTE.secondary, CHARTJS_PALETTE.neutral] }]
+        }
+    });
+
+    const semGestBins = [
+        { label: '1-12', min: 1, max: 12 },
+        { label: '13-20', min: 13, max: 20 },
+        { label: '21-28', min: 21, max: 28 },
+        { label: '29-36', min: 29, max: 36 },
+        { label: '>=37', min: 37, max: 60 }
+    ];
+    const semGestData = semGestBins.map((bin) => rows.filter((row) => {
+        const value = toNumber(row.sem_ges);
+        return value !== null && value >= bin.min && value <= bin.max;
+    }).length);
+    renderBoletinChartJs('boletin-chart-semanas-gest', {
+        type: 'bar',
+        data: {
+            labels: semGestBins.map((bin) => bin.label),
+            datasets: [{ label: 'Casos', data: semGestData, backgroundColor: CHARTJS_PALETTE.violet }]
+        },
+        options: { scales: { y: { beginAtZero: true } } }
+    });
+
+    const causasRows = countBy(rows, (row) => row.caus_agrup).sort((a, b) => b.value - a.value).slice(0, 8);
+    renderBoletinChartJs('boletin-chart-causas', {
+        type: 'bar',
+        data: {
+            labels: causasRows.map((item) => item.label),
+            datasets: [{ label: 'Casos por causa', data: causasRows.map((item) => item.value), backgroundColor: CHARTJS_PALETTE.primary }]
+        },
+        options: { indexAxis: 'y', scales: { x: { beginAtZero: true } } }
+    });
+    fillBoletinCausasTable(causasRows, total);
+
+    const complicaciones = [
+        { label: 'Hemorragia obstetrica severa', value: rows.filter((row) => boolLike(row.hemorragia_obst_trica_severa)).length },
+        { label: 'Eclampsia', value: rows.filter((row) => boolLike(row.eclampsia)).length },
+        { label: 'Preclampsia', value: rows.filter((row) => boolLike(row.preclampsi)).length },
+        { label: 'Falla cardiaca', value: rows.filter((row) => boolLike(row.falla_card)).length },
+        { label: 'Falla renal', value: rows.filter((row) => boolLike(row.falla_rena)).length },
+        { label: 'Ruptura uterina', value: rows.filter((row) => boolLike(row.rupt_uteri)).length }
+    ];
+    renderBoletinChartJs('boletin-chart-complicaciones', {
+        type: 'doughnut',
+        data: {
+            labels: complicaciones.map((item) => item.label),
+            datasets: [{ label: 'Complicaciones', data: complicaciones.map((item) => item.value), backgroundColor: [CHARTJS_PALETTE.lightRed, CHARTJS_PALETTE.warning, CHARTJS_PALETTE.primary, CHARTJS_PALETTE.secondary, CHARTJS_PALETTE.violet, CHARTJS_PALETTE.neutral] }]
+        }
+    });
+
+    fillBoletinMunicipalTable(resumenMunicipal.filas, resumenMunicipal.total);
+
+    const nvWarning = document.getElementById('boletin-nv-warning');
+    const hasRawNv = rows.some((row) => toNumber(row.num_vivos) !== null);
+    if (nvWarning) {
+        if (hasRawNv) {
+            nvWarning.classList.add('hidden');
+            nvWarning.textContent = '';
+        } else {
+            nvWarning.classList.remove('hidden');
+            nvWarning.textContent = 'Advertencia: no se encontro num_vivos en cleanedData para el filtro activo. Se usan NV de referencia departamental para mantener la tabla oficial completa.';
+        }
+    }
+
+    if (!rows.length) {
+        const mapContainer = document.getElementById('boletin-mapa-risaralda');
+        if (mapContainer) {
+            mapContainer.innerHTML = '<div class="territorial-empty-cell">Sin casos para el filtro actual.</div>';
+        }
+    } else {
+        cargarGeojsonRisaralda()
+            .then(() => renderSvgRisaraldaMap(resumenMunicipal.filas || [], 'boletin-mapa-risaralda'))
+            .catch(() => {
+                const mapContainer = document.getElementById('boletin-mapa-risaralda');
+                if (mapContainer) {
+                    mapContainer.innerHTML = '<div class="territorial-empty-cell">No fue posible cargar el croquis municipal.</div>';
+                }
+            });
+    }
+}
+
+async function descargarBoletinComoPdf() {
+    ensureBoletinTemplate();
+    renderBoletinEpidemiologico();
+
+    if (typeof window.html2pdf !== 'function') {
+        alert('No fue posible inicializar html2pdf en este navegador.');
+        return;
+    }
+
+    const btn = document.getElementById('btn-descargar-boletin');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Generando PDF...';
+    }
+
+    try {
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        const node = document.getElementById('boletin-print-root');
+        if (!node) return;
+
+        const semana = String(buildBoletinTemporalStats(getRows()).semanaMax).padStart(2, '0');
+        const anio = String(buildBoletinTemporalStats(getRows()).anioActual);
+        const options = {
+            margin: [6, 6, 6, 6],
+            filename: `Boletin_MME_Risaralda_SE${semana}_${anio}.pdf`,
+            image: { type: 'jpeg', quality: 0.98 },
+            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+            pagebreak: { mode: ['css', 'legacy'] }
+        };
+
+        await window.html2pdf().set(options).from(node).save();
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = 'Descargar como PDF';
+        }
+    }
+}
+
+function aplicarFiltrosYActualizarGraficos() {
+    ensureChartTitlesAndSubtitles();
+    actualizarKPIsVisibles();
+    llenarTablaSociodemografica();
+    llenarTablaTerritorial();
+    llenarTablaCalidad();
+    llenarTablaClinica();
+    graficoSemanas();
+    graficoComparativo();
+    graficoEdad();
+    graficoEdadSocio();
+    graficoAfiliacion();
+    graficoCausas();
+    graficoMomento();
+    graficoMapa();
+    graficoOportunidad();
+    graficoDiasNotificacion();
+    renderBoletinEpidemiologico();
+    resizeTodosGraficos();
+}
+
+function actualizarTodoDashboardConDatos(payload) {
+    cleanedData = Array.isArray(payload.cleanedData) ? payload.cleanedData : [];
+    datosActuales = buildDatosDesdeCleanedData(payload);
+    totalSinFiltroActual = Number(payload.total_sin_filtro ?? payload.total_casos ?? 0);
+    ultimaVersionDatos = String(payload.data_version || '');
+
+    if (payload.municipios_disponibles) {
+        municipiosDisponibles = payload.municipios_disponibles;
+        llenarFiltroMunicipios(municipiosDisponibles);
+    }
+
+    ensureExtraDashboardStructure();
+    ensureBoletinTemplate();
+    actualizarBoletinDinamico();
+    aplicarFiltrosYActualizarGraficos();
+}
+
+function actualizarKPIsVisibles() {
+    const total = Number(datosActuales.totalCasos || 0);
+    const calidad = datosActuales.calidad || {};
+
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+
+    const setLabel = (valueId, labelText) => {
+        const valueEl = document.getElementById(valueId);
+        if (!valueEl) return;
+        const card = valueEl.closest('.kpi-card');
+        const labelEl = card ? card.querySelector('.kpi-label') : null;
+        if (labelEl) labelEl.textContent = labelText;
+    };
+
+    setText('boletin-casos', total);
+    setText('boletin-hospitalizados', Number(calidad.hospitalizacion || 0));
+
+    setLabel('kpi-variacion-anual', '% UCI');
+    setLabel('kpi-hospitalizacion', '% HOSPITALIZADAS');
+    setText('kpi-total-casos', total);
+    setText('kpi-variacion-anual', `${Number(calidad.porcentajeUCI || 0).toFixed(1)}%`);
+    setText('kpi-variacion-subtexto', `${Number(calidad.requiereUCI || 0)} casos en UCI`);
+    setText('kpi-hospitalizacion', `${Number(calidad.porcentajeHospitalizacion || 0).toFixed(1)}%`);
+    setText('kpi-letalidad', `${Number(calidad.letalidad || 0).toFixed(1)}%`);
+    setText('kpi-letalidad-subtexto', `${Math.round((Number(calidad.letalidad || 0) * total) / 100)} defunciones`);
+
+    const edad = datosActuales.edadEstadisticas || {};
+    setText('kpi-edad-promedio', edad.promedio || '—');
+    setText('kpi-edad-min', edad.minima || '—');
+    setText('kpi-edad-max', edad.maxima || '—');
+    setText('kpi-edad-moda', edad.moda || '—');
+
+    setText('kpi-clin-hospitalizacion', calidad.hospitalizacion || 0);
+    setText('kpi-clin-hospitalizacion-pct', `${Number(calidad.porcentajeHospitalizacion || 0).toFixed(1)}% del total`);
+    setText('kpi-clin-reconsulta', calidad.requiereUCI || 0);
+    setText('kpi-clin-reconsulta-pct', `${Number(calidad.porcentajeUCI || 0).toFixed(1)}% en UCI`);
+    setText('kpi-clin-control', Math.max(0, total - Number(calidad.hospitalizacion || 0)));
+    setText('kpi-clin-control-pct', `${formatPct(Math.max(0, total - Number(calidad.hospitalizacion || 0)), total)}`);
+    setText('kpi-clin-dias', calidad.diasPromedioNotificacion !== null ? Number(calidad.diasPromedioNotificacion).toFixed(1) : 'N/D');
+
+    setLabel('kpi-cal-oportuna', 'REGISTROS COMPLETOS');
+    setLabel('kpi-cal-tardia', 'SIN DUPLICADOS');
+    setLabel('kpi-cal-completitud', 'PROM. DIAS NOTIF');
+    setLabel('kpi-cal-duplicados', 'CASOS VISUALIZADOS');
+    setText('kpi-cal-oportuna', `${Number(calidad.completitud || 0).toFixed(1)}%`);
+    setText('kpi-cal-oportuna-pct', 'Variables criticas completas');
+    setText('kpi-cal-tardia', `${Number(calidad.porcentajeSinDuplicados || 0).toFixed(1)}%`);
+    setText('kpi-cal-tardia-pct', 'Registros unicos');
+    setText('kpi-cal-completitud', calidad.diasPromedioNotificacion !== null ? `${Number(calidad.diasPromedioNotificacion).toFixed(1)} d` : 'N/D');
+    setText('kpi-cal-duplicados', total);
+
+    const municipios = (datosActuales.municipios || []).sort((a, b) => (b.casos || 0) - (a.casos || 0));
+    if (municipios.length) {
+        const top = municipios[0];
+        const top3 = municipios.slice(0, 3).reduce((acc, m) => acc + Number(m.casos || 0), 0);
+        setText('kpi-mayor-carga', top.nombre || top.municipio || '—');
+        setText('kpi-mayor-carga-subtexto', `${top.casos || 0} casos (${formatPct(top.casos || 0, total)})`);
+        setText('kpi-municipios-afectados', municipios.filter(m => Number(m.casos || 0) > 0).length);
+        setText('kpi-top3', top3);
+        setText('kpi-top3-subtexto', `${formatPct(top3, total)} del total`);
+        setText('kpi-prioritarios', municipios.filter(m => Number(m.casos || 0) >= Math.max(1, Math.round(total * 0.1))).length);
+    } else {
+        setText('kpi-mayor-carga', '—');
+        setText('kpi-mayor-carga-subtexto', '0 casos (0.0%)');
+        setText('kpi-municipios-afectados', 0);
+        setText('kpi-top3', 0);
+        setText('kpi-top3-subtexto', '0.0% del total');
+        setText('kpi-prioritarios', 0);
+    }
+}
+
+function graficoSemanas() {
+    const semanas = Array.isArray(datosActuales.semanas) ? datosActuales.semanas : [];
+    const labels = semanas.map(s => s.semana);
+    const casos = semanas.map(s => Number(s.casos || 0));
+    const acumulado = [];
+    casos.reduce((acc, val, idx) => {
+        const next = acc + val;
+        acumulado[idx] = next;
+        return next;
+    }, 0);
+
+    renderChartJs('grafico-semanas', {
+        type: 'bar',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Casos por semana', data: casos, backgroundColor: CHARTJS_PALETTE.primary, borderRadius: 4 },
+                { label: 'Acumulado de casos', data: acumulado, type: 'line', borderColor: CHARTJS_PALETTE.warning, backgroundColor: CHARTJS_PALETTE.warning, tension: 0.25, pointRadius: 3, yAxisID: 'y1' }
+            ]
+        },
+        options: {
+            scales: {
+                y: { beginAtZero: true, title: { display: true, text: 'Casos semanales' } },
+                y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, title: { display: true, text: 'Acumulado' } }
+            }
+        }
+    }, 380);
+}
+
+function graficoComparativo() {
+    const rows = getRows();
+    const total = rows.length || 1;
+    const fields = [
+        { key: 'hemorragia_obst_trica_severa', label: 'Hemorragia obstetrica severa' },
+        { key: 'eclampsia', label: 'Eclampsia' },
+        { key: 'preclampsi', label: 'Preclampsia severa' },
+        { key: 'falla_card', label: 'Falla cardiaca' },
+        { key: 'falla_rena', label: 'Falla renal' },
+        { key: 'rupt_uteri', label: 'Ruptura uterina' },
+        { key: 'ingres_uci', label: 'Ingreso a UCI' }
+    ];
+    const ranked = fields.map((f) => ({
+        label: f.label,
+        value: rows.filter(r => boolLike(r[f.key])).length
+    })).map((r) => ({ ...r, pct: pct(r.value, total) }))
+        .sort((a, b) => b.pct - a.pct)
+        .slice(0, 6);
+
+    renderChartJs('grafico-comparativo', {
+        type: 'bar',
+        data: {
+            labels: ranked.map(r => r.label),
+            datasets: [{ label: 'Porcentaje de casos con complicacion', data: ranked.map(r => Number(r.pct.toFixed(2))), backgroundColor: CHARTJS_PALETTE.lightOrange }]
+        },
+        options: {
+            indexAxis: 'y',
+            scales: { x: { beginAtZero: true, title: { display: true, text: '% sobre total' } } },
+            plugins: { legend: { display: true } }
+        }
+    }, 320);
+}
+
+function graficoEdad() {
+    const data = Array.isArray(datosActuales.gruposEdad) ? datosActuales.gruposEdad : [];
+    renderChartJs('grafico-edad', {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.grupo),
+            datasets: [{ label: 'Numero de casos por grupo', data: data.map(d => Number(d.casos || 0)), backgroundColor: CHARTJS_PALETTE.lightBlue }]
+        },
+        options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } } }
+    }, 320);
+}
+
+function graficoEdadSocio() {
+    const data = Array.isArray(datosActuales.gruposEdad) ? datosActuales.gruposEdad : [];
+    renderChartJs('grafico-edad-socio', {
+        type: 'bar',
+        data: {
+            labels: data.map(d => d.grupo),
+            datasets: [{ label: 'Casos por grupo de edad', data: data.map(d => Number(d.casos || 0)), backgroundColor: CHARTJS_PALETTE.secondary }]
+        },
+        options: {
+            indexAxis: 'y',
+            plugins: { legend: { display: true } },
+            scales: { x: { beginAtZero: true } }
+        }
+    }, 350);
+
+    const rows = getRows();
+    const vulnerables = [
+        { label: 'Discapacidad', count: rows.filter(r => boolLike(r.gp_discapa)).length },
+        { label: 'Desplazada', count: rows.filter(r => boolLike(r.gp_desplaz)).length },
+        { label: 'Migrante', count: rows.filter(r => boolLike(r.gp_migrant)).length },
+        { label: 'Indigena', count: rows.filter(r => boolLike(r.gp_indigen)).length },
+        { label: 'Gestante', count: rows.filter(r => boolLike(r.gp_gestan)).length },
+        { label: 'Grupo especial', count: rows.filter(r => String(r.nom_grupo || '').trim() !== '').length }
+    ].sort((a, b) => b.count - a.count);
+
+    renderChartJs('grafico-vulnerables', {
+        type: 'bar',
+        data: {
+            labels: vulnerables.map(v => v.label),
+            datasets: [{ label: 'Casos en grupo vulnerable', data: vulnerables.map(v => v.count), backgroundColor: CHARTJS_PALETTE.lightRed }]
+        },
+        options: { indexAxis: 'y', plugins: { legend: { display: true } }, scales: { x: { beginAtZero: true } } }
+    }, 320);
+
+    const estratos = ['1', '2', '3', '4', '5', '6', 'SIN DATO'];
+    const areas = [...new Set(rows.map(r => String(r.area || '').trim() || 'SIN DATO'))];
+    const datasets = areas.slice(0, 5).map((area, idx) => ({
+        label: area,
+        data: estratos.map((e) => rows.filter(r => (String(r.estrato || '').trim() || 'SIN DATO') === e && (String(r.area || '').trim() || 'SIN DATO') === area).length),
+        backgroundColor: [CHARTJS_PALETTE.primary, CHARTJS_PALETTE.secondary, CHARTJS_PALETTE.warning, CHARTJS_PALETTE.violet, CHARTJS_PALETTE.neutral][idx]
+    }));
+
+    renderChartJs('grafico-estrato-area', {
+        type: 'bar',
+        data: { labels: estratos, datasets },
+        options: {
+            scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true } },
+            plugins: { legend: { display: true, title: { display: true, text: 'Color = Area de residencia' } } }
+        }
+    }, 320);
+}
+
+function graficoAfiliacion() {
+    const etnia = countBy(getRows(), r => r.per_etn).sort((a, b) => b.value - a.value).slice(0, 8);
+    renderChartJs('grafico-afiliacion', {
+        type: 'doughnut',
+        data: {
+            labels: etnia.map(e => e.label),
+            datasets: [{ label: 'Participacion por pertenencia etnica', data: etnia.map(e => e.value), backgroundColor: [CHARTJS_PALETTE.primary, CHARTJS_PALETTE.secondary, CHARTJS_PALETTE.warning, CHARTJS_PALETTE.lightBlue, CHARTJS_PALETTE.lightGreen, CHARTJS_PALETTE.lightOrange, CHARTJS_PALETTE.lightRed, CHARTJS_PALETTE.neutral] }]
+        }
+    }, 350);
+}
+
+function graficoCausas() {
+    const causas = countBy(getRows(), r => r.caus_agrup).sort((a, b) => b.value - a.value).slice(0, 8);
+    renderChartJs('grafico-causas', {
+        type: 'bar',
+        data: { labels: causas.map(c => c.label), datasets: [{ label: 'Numero de casos por causa', data: causas.map(c => c.value), backgroundColor: CHARTJS_PALETTE.primary }] },
+        options: { plugins: { legend: { display: true } }, scales: { x: { ticks: { maxRotation: 35, minRotation: 35 } }, y: { beginAtZero: true } } }
+    }, 350);
+
+    const rows = getRows();
+    const comp = [
+        { label: 'Hemorragia', value: rows.filter(r => boolLike(r.hemorragia_obst_trica_severa)).length },
+        { label: 'Eclampsia', value: rows.filter(r => boolLike(r.eclampsia)).length },
+        { label: 'Preclampsia', value: rows.filter(r => boolLike(r.preclampsi)).length },
+        { label: 'Falla cardiaca', value: rows.filter(r => boolLike(r.falla_card)).length },
+        { label: 'Falla renal', value: rows.filter(r => boolLike(r.falla_rena)).length },
+        { label: 'Ruptura uterina', value: rows.filter(r => boolLike(r.rupt_uteri)).length }
+    ];
+    renderChartJs('grafico-complicaciones-clinicas', {
+        type: 'bar',
+        data: { labels: comp.map(c => c.label), datasets: [{ label: 'Casos con complicacion grave', data: comp.map(c => c.value), backgroundColor: CHARTJS_PALETTE.lightRed }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: true } }, scales: { x: { beginAtZero: true } } }
+    }, 320);
+}
+
+function graficoMomento() {
+    const dias = [
+        { label: '0-2 dias', min: 0, max: 2 },
+        { label: '3-5 dias', min: 3, max: 5 },
+        { label: '6-10 dias', min: 6, max: 10 },
+        { label: '>10 dias', min: 11, max: 365 }
+    ];
+    const rows = getRows();
+    const diasHosp = dias.map(b => rows.filter((r) => {
+        const v = toNumber(r.dias_hospi);
+        return v !== null && v >= b.min && v <= b.max;
+    }).length);
+
+    renderChartJs('grafico-momento', {
+        type: 'bar',
+        data: { labels: dias.map(d => d.label), datasets: [{ label: 'Numero de casos por dias de hospitalizacion', data: diasHosp, backgroundColor: CHARTJS_PALETTE.warning }] },
+        options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } } }
+    }, 350);
+
+    const semBins = [
+        { label: '1-12', min: 1, max: 12 },
+        { label: '13-20', min: 13, max: 20 },
+        { label: '21-28', min: 21, max: 28 },
+        { label: '29-36', min: 29, max: 36 },
+        { label: '>=37', min: 37, max: 50 }
+    ];
+    const semData = semBins.map(b => rows.filter((r) => {
+        const v = toNumber(r.sem_ges);
+        return v !== null && v >= b.min && v <= b.max;
+    }).length);
+
+    renderChartJs('grafico-semanas-gestacionales', {
+        type: 'line',
+        data: { labels: semBins.map(s => s.label), datasets: [{ label: 'Casos por rango de semanas gestacionales', data: semData, borderColor: CHARTJS_PALETTE.secondary, backgroundColor: CHARTJS_PALETTE.secondary, tension: 0.25, pointRadius: 3 }] },
+        options: { scales: { y: { beginAtZero: true } } }
+    }, 320);
+}
+
+function graficoMapa() {
+    const rows = getRows();
+    if (!rows.length) {
+        maybeShowNoData('grafico-mapa', 'No hay casos para representar en el mapa con el filtro actual.');
+    } else {
+        cargarGeojsonRisaralda()
+            .then(() => renderSvgRisaraldaMap(resumenTerritorialActual.filas || []))
+            .catch((error) => {
+                maybeShowNoData('grafico-mapa', `No se pudo cargar el croquis municipal: ${error.message}`);
+            });
+    }
+
+    const area = countBy(getRows(), r => r.area).sort((a, b) => b.value - a.value);
+    renderChartJs('grafico-area-territorial', {
+        type: 'pie',
+        data: {
+            labels: area.map(a => a.label),
+            datasets: [{ label: 'Participacion por area', data: area.map(a => a.value), backgroundColor: [CHARTJS_PALETTE.primary, CHARTJS_PALETTE.secondary, CHARTJS_PALETTE.warning, CHARTJS_PALETTE.neutral] }]
+        }
+    }, 300);
+
+    const depto = countBy(getRows(), r => r.ndep_resi || r.nmun_resi).sort((a, b) => b.value - a.value).slice(0, 8);
+    renderChartJs('grafico-departamento-territorial', {
+        type: 'bar',
+        data: { labels: depto.map(d => d.label), datasets: [{ label: 'Numero de casos por departamento', data: depto.map(d => d.value), backgroundColor: CHARTJS_PALETTE.lightGreen }] },
+        options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } } }
+    }, 300);
+}
+
+function graficoOportunidad() {
+    const rows = getRows();
+    const total = rows.length;
+    const cols = ['edad', 'semana', 'a_o', 'pac_hos', 'ingres_uci', 'nmun_resi', 'caus_agrup', 'sem_ges'];
+    const labels = ['Edad', 'Semana', 'Ano', 'Hospitalizacion', 'UCI', 'Municipio', 'Causa', 'Semanas gestacionales'];
+    const values = cols.map((c) => pct(rows.filter(r => String(r[c] ?? '').trim() !== '').length, total));
+
+    renderChartJs('grafico-oportunidad', {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Porcentaje de completitud por variable', data: values.map(v => Number(v.toFixed(2))), backgroundColor: CHARTJS_PALETTE.secondary }] },
+        options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true, max: 100 } } }
+    }, 350);
+}
+
+function graficoDiasNotificacion() {
+    const rows = getRows();
+    const semMap = new Map();
+    rows.forEach((r) => {
+        const semanaRaw = toNumber(r.semana);
+        if (semanaRaw === null || semanaRaw <= 0) return;
+        const semana = Math.trunc(semanaRaw);
+        const key = `S${String(semana).padStart(2, '0')}`;
+        const cols = ['edad', 'semana', 'a_o', 'pac_hos', 'nmun_resi', 'caus_agrup'];
+        const filled = cols.filter(c => String(r[c] ?? '').trim() !== '').length;
+        const pctRow = (filled * 100) / cols.length;
+        if (!semMap.has(key)) semMap.set(key, []);
+        semMap.get(key).push(pctRow);
+    });
+
+    const sorted = [...semMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    const labels = sorted.map(s => s[0]);
+    const series = sorted.map(([, vals]) => (vals.reduce((acc, n) => acc + n, 0) / vals.length));
+
+    renderChartJs('grafico-dias-notificacion', {
+        type: 'line',
+        data: { labels, datasets: [{ label: 'Completitud semanal (%)', data: series.map(v => Number(v.toFixed(2))), borderColor: CHARTJS_PALETTE.warning, backgroundColor: CHARTJS_PALETTE.warning, tension: 0.25, pointRadius: 3 }] },
+        options: { scales: { y: { beginAtZero: true, max: 100 } } }
+    }, 350);
+}
+
+function llenarTablaSociodemografica() {
+    const tbody = document.getElementById('tabla-socio-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    (datosActuales.gruposEdad || []).forEach((item) => {
+        tbody.innerHTML += `<tr><td>Grupo de edad</td><td>${item.grupo}</td><td class="text-center">${item.casos}</td><td class="text-center">${item.porcentaje}%</td></tr>`;
+    });
+
+    const etnia = countBy(getRows(), r => r.per_etn).sort((a, b) => b.value - a.value).slice(0, 8);
+    etnia.forEach((item) => {
+        tbody.innerHTML += `<tr><td>Pertenencia etnica</td><td>${item.label}</td><td class="text-center">${item.value}</td><td class="text-center">${formatPct(item.value, getRows().length)}</td></tr>`;
+    });
+}
+
+function llenarTablaTerritorial() {
+    const tbody = document.getElementById('tabla-territorial-body');
+    const subtitle = document.getElementById('subtitle-tabla-territorial');
+    const fuente = document.getElementById('tabla-territorial-fuente');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const rows = getRows();
+    if (subtitle) {
+        subtitle.textContent = buildTerritorialSubtitle(rows);
+    }
+    if (fuente) {
+        fuente.textContent = buildTerritorialSource(rows);
+    }
+    resumenTerritorialActual = buildTerritorialSummary(rows);
+    const filas = resumenTerritorialActual.filas;
+    const total = resumenTerritorialActual.total;
+
+    if (!filas.length) {
+        tbody.innerHTML = '<tr><td colspan="4" class="territorial-empty-cell">Sin datos territoriales para el filtro actual.</td></tr>';
+        return;
+    }
+
+    filas.forEach((row) => {
+        const ratioClass = riskClassByRatio(row.razon);
+        const nvTxt = row.nacidosVivos === null ? '-' : formatNumber(row.nacidosVivos, 0);
+        const razonTxt = row.razon === null ? '-' : formatNumber(row.razon, 1);
+        tbody.innerHTML += `
+            <tr>
+                <td class="territorial-cell-name"><strong>${row.municipio}</strong></td>
+                <td class="territorial-cell-cases">${formatNumber(row.casos, 0)}</td>
+                <td class="territorial-cell-nv">${nvTxt}</td>
+                <td class="territorial-cell-ratio ${ratioClass}">${razonTxt}</td>
+            </tr>
+        `;
+    });
+
+    if (total) {
+        const totalClass = riskClassByRatio(total.razon);
+        const totalNvTxt = total.nacidosVivos === null ? '-' : formatNumber(total.nacidosVivos, 0);
+        const totalRazonTxt = total.razon === null ? '-' : formatNumber(total.razon, 1);
+        tbody.innerHTML += `
+            <tr class="territorial-total-row">
+                <td class="territorial-cell-name"><strong>Risaralda</strong></td>
+                <td class="territorial-cell-cases"><strong>${formatNumber(total.casos, 0)}</strong></td>
+                <td class="territorial-cell-nv"><strong>${totalNvTxt}</strong></td>
+                <td class="territorial-cell-ratio ${totalClass}"><strong>${totalRazonTxt}</strong></td>
+            </tr>
+        `;
+    }
+}
+
+function llenarTablaCalidad() {
+    const tbody = document.getElementById('tabla-calidad-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const rows = getRows();
+    const weeks = new Map();
+    rows.forEach((r) => {
+        const weekRaw = toNumber(r.semana);
+        if (weekRaw === null || weekRaw <= 0) return;
+        const week = Math.trunc(weekRaw);
+        const key = `S${String(week).padStart(2, '0')}`;
+        if (!weeks.has(key)) weeks.set(key, { total: 0, completos: 0 });
+        const entry = weeks.get(key);
+        entry.total += 1;
+        const ok = ['edad', 'semana', 'a_o', 'pac_hos', 'nmun_resi', 'caus_agrup'].every(c => String(r[c] ?? '').trim() !== '');
+        if (ok) entry.completos += 1;
+    });
+
+    [...weeks.entries()].sort((a, b) => a[0].localeCompare(b[0])).forEach(([semana, entry]) => {
+        const porcentaje = pct(entry.completos, entry.total);
+        const estado = porcentaje >= 90 ? 'ALTO' : (porcentaje >= 75 ? 'MEDIO' : 'BAJO');
+        const clase = porcentaje >= 90 ? 'badge-verde' : (porcentaje >= 75 ? 'badge-naranja' : 'badge-rojo');
+        tbody.innerHTML += `
+            <tr>
+                <td><strong>${semana}</strong></td>
+                <td class="text-center">${entry.completos}</td>
+                <td class="text-center">${entry.total - entry.completos}</td>
+                <td class="text-center"><strong>${porcentaje.toFixed(1)}%</strong></td>
+                <td class="text-center"><span class="${clase}">${estado}</span></td>
+            </tr>
+        `;
+    });
+}
+
+function llenarTablaClinica() {
+    const tbody = document.getElementById('tabla-clinica-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    const rows = getRows();
+    const total = rows.length || 1;
+    const items = [
+        { label: 'Hospitalizacion', yes: rows.filter(r => boolLike(r.pac_hos)).length },
+        { label: 'Ingreso a UCI', yes: rows.filter(r => boolLike(r.ingres_uci)).length },
+        { label: 'Hemorragia obstetrica severa', yes: rows.filter(r => boolLike(r.hemorragia_obst_trica_severa)).length },
+        { label: 'Eclampsia', yes: rows.filter(r => boolLike(r.eclampsia)).length }
+    ];
+
+    items.forEach((item) => {
+        const no = Math.max(0, rows.length - item.yes);
+        tbody.innerHTML += `
+            <tr>
+                <td><strong>${item.label}</strong></td>
+                <td class="text-center">${item.yes}</td>
+                <td class="text-center">${no}</td>
+                <td class="text-center"><strong>${formatPct(item.yes, total)}</strong></td>
+            </tr>
+        `;
+    });
+}
+
+function resizeTodosGraficos() {
+    Object.values(chartsEvento549).forEach((chart) => {
+        if (chart && typeof chart.resize === 'function') {
+            chart.resize();
+        }
+    });
+    Object.values(boletinChartsEvento549).forEach((chart) => {
+        if (chart && typeof chart.resize === 'function') {
+            chart.resize();
+        }
+    });
+}
+
+async function actualizarComparacionInteranualSemanal() {
+    return;
+}
+
 // ====================================
 // INICIALIZACIÓN
 // ====================================
 
 document.addEventListener('DOMContentLoaded', async function() {
     console.log('🏥 Inicializando Dashboard SIVIGILA...');
+
+    ensureBoletinTemplate();
+    await asegurarChartJsListo();
+    ensureExtraDashboardStructure();
 
     // Llenar selector de eventos
     llenarSelectorEventos();
@@ -1850,7 +4067,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.warn('⚠️ API depurada no disponible en inicialización.', error);
         datosActuales = crearDatosVaciosDesdeDepurado();
         totalSinFiltroActual = 0;
-        actualizarBarraEstado(null, null, false);
+        actualizarBarraEstado(null, null, false, mensajeErrorFuenteDatos(error));
         ultimaVersionDatos = null;
     }
     
@@ -1870,6 +4087,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     graficoMapa();
     graficoOportunidad();
     graficoDiasNotificacion();
+    renderBoletinEpidemiologico();
     actualizarComparacionInteranualSemanal();
     setTimeout(resizeTodosGraficos, 300);
 
@@ -1880,4 +4098,27 @@ document.addEventListener('DOMContentLoaded', async function() {
     }
     timerEdadDatos = setInterval(actualizarEdadDatosVisual, 1000);
     actualizarEdadDatosVisual();
+
+    iniciarSincronizacionAutomatica();
+    await forzarSincronizacionInmediata();
+});
+
+document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && eventoActual === 549) {
+        forzarSincronizacionInmediata();
+    }
+});
+
+window.addEventListener('online', function () {
+    if (eventoActual === 549) {
+        forzarSincronizacionInmediata();
+    }
+});
+
+window.addEventListener('beforeunload', function () {
+    detenerSincronizacionAutomatica();
+    if (timerEdadDatos) {
+        clearInterval(timerEdadDatos);
+        timerEdadDatos = null;
+    }
 });

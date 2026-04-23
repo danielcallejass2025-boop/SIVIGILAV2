@@ -39,6 +39,8 @@ const PYTHON_EXE = fs.existsSync(VENV_PYTHON)
   : (process.env.PYTHON_EXE || "python");
 const MAIN_PY = path.join(BASE_DIR, "main.py");
 
+const EXTENSIONES_BINARIAS = new Set([".xlsx", ".xls", ".xlsm", ".ods"]);
+
 // ============================================================
 // CACHE DE ARCHIVOS YA PROCESADOS
 // ============================================================
@@ -50,7 +52,9 @@ const MAIN_PY = path.join(BASE_DIR, "main.py");
 function cargarCache() {
   try {
     if (fs.existsSync(CACHE_PATH)) {
-      const data = JSON.parse(fs.readFileSync(CACHE_PATH, "utf-8"));
+      let raw = fs.readFileSync(CACHE_PATH, "utf-8");
+      raw = raw.replace(/^\uFEFF/, "").replace(/\u0000/g, "").trim();
+      const data = JSON.parse(raw || "{}");
       return new Set(data.procesados || []);
     }
   } catch (err) {
@@ -162,15 +166,91 @@ function procesarArchivo(file) {
   console.log(`  → Procesando archivo: ${nombre}`);
 }
 
+function obtenerExtensionArchivo(nombre) {
+  return path.extname(String(nombre || "")).toLowerCase();
+}
+
+function esArchivoBinario(file) {
+  const nombre = file?.nombre || file?.name || "";
+  const tipo = String(file?.tipo || file?.mimeType || "").toLowerCase();
+  const ext = obtenerExtensionArchivo(nombre);
+
+  if (EXTENSIONES_BINARIAS.has(ext)) return true;
+  if (tipo.includes("spreadsheet") || tipo.includes("excel") || tipo.includes("opendocument")) {
+    return true;
+  }
+  return false;
+}
+
+function pareceBase64(texto) {
+  if (typeof texto !== "string") return false;
+  const limpio = texto.replace(/\s+/g, "");
+  if (limpio.length < 32 || limpio.length % 4 !== 0) return false;
+  return /^[A-Za-z0-9+/=]+$/.test(limpio);
+}
+
+function tieneCaracteresReemplazo(texto) {
+  return typeof texto === "string" && texto.includes("\uFFFD");
+}
+
+function validarFirmaBinaria(buffer, nombreArchivo) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 4) return false;
+  const ext = obtenerExtensionArchivo(nombreArchivo);
+
+  // ZIP container (xlsx/xlsm/ods)
+  if ([".xlsx", ".xlsm", ".ods"].includes(ext)) {
+    return buffer[0] === 0x50 && buffer[1] === 0x4b;
+  }
+
+  // OLE2 (xls clásico)
+  if (ext === ".xls") {
+    return (
+      buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0
+    );
+  }
+
+  return true;
+}
+
+async function descargarBinarioDirectoDrive(fileId, rutaLocal, nombre) {
+  const urlDirecta = `https://drive.google.com/uc?export=download&id=${encodeURIComponent(fileId)}`;
+  const response = await fetch(urlDirecta, { method: "GET", redirect: "follow" });
+
+  if (!response.ok) {
+    throw new Error(`Drive directo HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (contentType.includes("text/html")) {
+    throw new Error("Drive devolvió HTML en lugar de binario (archivo no accesible por enlace directo)");
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (!buffer.length) {
+    throw new Error("Descarga directa devolvió archivo vacío");
+  }
+
+  if (!validarFirmaBinaria(buffer, nombre)) {
+    throw new Error("Descarga directa sin firma binaria válida para el tipo de archivo");
+  }
+
+  fs.writeFileSync(rutaLocal, buffer);
+  console.log(`  ✓ Descargado (directo/binario): ${nombre} (${buffer.length} bytes)`);
+  return rutaLocal;
+}
+
 /**
- * Descarga un archivo desde la API (accion=leer) y lo guarda localmente
- * La API devuelve el contenido del archivo como texto plano en el campo "contenido"
+ * Descarga un archivo y lo guarda localmente.
+ * Para binarios intenta descarga directa Drive (preserva bytes).
+ * Si falla, usa API accion=leer como respaldo.
  * @param {Object} file - Objeto de archivo con id y nombre
  * @returns {Promise<string|null>} Ruta local del archivo descargado
  */
 async function descargarArchivo(file) {
   const nombre = file.nombre || file.name;
   const fileId = file.id;
+  const archivoBinario = esArchivoBinario(file);
 
   if (!nombre || !fileId) {
     console.error("  ✗ Archivo sin nombre o ID, no se puede descargar");
@@ -185,6 +265,15 @@ async function descargarArchivo(file) {
   const rutaLocal = path.join(INPUT_DIR, nombre);
 
   try {
+    if (archivoBinario) {
+      try {
+        return await descargarBinarioDirectoDrive(fileId, rutaLocal, nombre);
+      } catch (directErr) {
+        console.warn(`  ⚠ Descarga binaria directa no disponible: ${directErr.message}`);
+        console.warn("  ↪ Intentando respaldo por Apps Script...");
+      }
+    }
+
     // Pedir contenido a la API
     const url = `${API_URL}?key=${encodeURIComponent(API_KEY)}&accion=leer&id=${encodeURIComponent(fileId)}`;
 
@@ -202,22 +291,43 @@ async function descargarArchivo(file) {
 
     // La API devuelve el contenido del archivo en data.contenido
     const contenido = data.contenido;
+    const codificacion = String(data.codificacion || data.encoding || "").toLowerCase();
 
     if (!contenido) {
       console.error(`  ✗ La API no devolvió contenido para: ${nombre}`);
       return null;
     }
 
-    // Determinar si es binario (base64) o texto plano
-    if (data.codificacion === "base64") {
-      // Archivo binario (xlsx, xls, ods, etc.)
-      const buffer = Buffer.from(contenido, "base64");
+    if (archivoBinario) {
+      let buffer = null;
+
+      if (codificacion.includes("base64") || pareceBase64(contenido)) {
+        const b64 = String(contenido).replace(/\s+/g, "");
+        buffer = Buffer.from(b64, "base64");
+      } else if (tieneCaracteresReemplazo(contenido)) {
+        throw new Error(
+          "Apps Script devolvió binario como texto con caracteres de reemplazo (contenido corrupto). " +
+          "Configura la API para responder base64 en accion=leer para archivos binarios."
+        );
+      } else {
+        // Fallback para payloads legacy sin metadata (latin1/binary string)
+        buffer = Buffer.from(String(contenido), "binary");
+      }
+
+      if (!buffer || !buffer.length) {
+        throw new Error("No se pudo reconstruir contenido binario desde la respuesta");
+      }
+
+      if (!validarFirmaBinaria(buffer, nombre)) {
+        throw new Error("Contenido binario inválido: firma de archivo no coincide con la extensión");
+      }
+
       fs.writeFileSync(rutaLocal, buffer);
-      console.log(`  ✓ Descargado (binario): ${nombre} (${buffer.length} bytes)`);
+      console.log(`  ✓ Descargado (binario/API): ${nombre} (${buffer.length} bytes)`);
     } else {
       // Archivo de texto (csv)
-      fs.writeFileSync(rutaLocal, contenido, "utf-8");
-      console.log(`  ✓ Descargado (texto): ${nombre} (${contenido.length} chars)`);
+      fs.writeFileSync(rutaLocal, String(contenido), "utf-8");
+      console.log(`  ✓ Descargado (texto): ${nombre} (${String(contenido).length} chars)`);
     }
 
     return rutaLocal;
