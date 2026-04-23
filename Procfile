@@ -1,1 +1,1 @@
-web: python servidor_dashboard.py
+web: python iniciar_dashboard.py
