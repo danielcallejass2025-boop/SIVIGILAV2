@@ -3,7 +3,7 @@ main.py
 Orquestador principal del sistema SIVIGILA
 Coordina lectura, depuración, anonimización y salida de archivos epidemiológicos
 """
-
+import os 
 import sys
 import argparse
 import json

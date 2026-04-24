@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ brand_name }}</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+    {% block extra_head %}{% endblock %}
 </head>
 <body>
 <div class="gov-top-strip">
@@ -26,24 +27,29 @@
     </div>
 
     <nav class="topnav">
-        <a href="{{ url_for('home') }}">Inicio</a>
-
-        {% if current_user %}
-            {% if current_user.role == role_secretario %}
-                <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
-                <a href="{{ url_for('admin_bulletins') }}">Boletines</a>
-                <a href="{{ url_for('admin_epi_list') }}">Epidemiólogos</a>
-                <a href="{{ url_for('admin_panel') }}">Secretario</a>
-            {% elif current_user.role == role_epidemiologo %}
-                <a href="{{ url_for('epi_dashboard') }}">Dashboard</a>
-                <a href="{{ url_for('epi_bulletins') }}">Boletines</a>
-                <a href="{{ url_for('epi_panel') }}">Epidemiólogo</a>
-            {% endif %}
+        {% set restricted_role_nav = current_user and current_user.role in [role_secretario, role_epidemiologo] %}
+        {% if current_user and (restricted_role_nav or compact_topnav|default(false)) %}
             <a href="{{ url_for('logout') }}" class="btn btn-danger">Cerrar sesión</a>
         {% else %}
-            <a href="{{ url_for('dashboard_public') }}">Dashboard</a>
-            <a href="{{ url_for('bulletins_public') }}">Boletines</a>
-            <a href="{{ url_for('login') }}" class="btn btn-primary">Iniciar sesión</a>
+            <a href="{{ url_for('home') }}">Inicio</a>
+
+            {% if current_user %}
+                {% if current_user.role == role_secretario %}
+                    <a href="{{ url_for('admin_dashboard') }}">Dashboard</a>
+                    <a href="{{ url_for('admin_bulletins') }}">Boletines</a>
+                    <a href="{{ url_for('admin_epi_list') }}">Epidemiólogos</a>
+                    <a href="{{ url_for('admin_panel') }}">Secretario</a>
+                {% elif current_user.role == role_epidemiologo %}
+                    <a href="{{ url_for('epi_dashboard') }}">Dashboard</a>
+                    <a href="{{ url_for('epi_bulletins') }}">Boletines</a>
+                    <a href="{{ url_for('epi_panel') }}">Epidemiólogo</a>
+                {% endif %}
+                <a href="{{ url_for('logout') }}" class="btn btn-danger">Cerrar sesión</a>
+            {% else %}
+                <a href="{{ url_for('dashboard_public') }}">Dashboard</a>
+                <a href="{{ url_for('bulletins_public') }}">Boletines</a>
+                <a href="{{ url_for('login') }}" class="btn btn-primary">Iniciar sesión</a>
+            {% endif %}
         {% endif %}
     </nav>
 </header>

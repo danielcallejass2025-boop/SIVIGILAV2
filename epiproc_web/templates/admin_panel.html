@@ -1,44 +1,142 @@
 {% extends 'base.html' %}
 
+{% block extra_head %}
+<script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+        corePlugins: {
+            preflight: false
+        }
+    };
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+{% endblock %}
+
 {% block content %}
-<section class="card secretary-hero">
-    <div>
-        <p class="hero-kicker">Secretaría de Salud</p>
-        <h2>Centro de Control EPIPROC</h2>
-        <p class="muted">Administra personal epidemiológico, boletines, trazabilidad y visualización del evento en tiempo real.</p>
-    </div>
-    <div class="actions">
-        <a class="btn btn-primary" href="{{ url_for('admin_dashboard') }}">Abrir dashboard</a>
-        <a class="btn" href="{{ url_for('admin_audit') }}">Ver auditoría</a>
-    </div>
-</section>
+<section class="mx-auto max-w-7xl space-y-6">
+    <section class="rounded-[24px] border border-slate-200 bg-white px-6 py-6 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <p class="mb-2 text-xs font-extrabold uppercase tracking-[0.22em] text-[#2F5E2A]">Secretaría de Salud</p>
+                <h2 class="text-4xl font-black tracking-tight text-slate-900">Centro de Control EPIPROC</h2>
+                <p class="mt-3 max-w-3xl text-lg text-slate-600">Administra personal epidemiológico, boletines, trazabilidad y visualización del evento en tiempo real.</p>
+            </div>
 
-<section class="card">
-    <div class="kpi-grid">
-        <article class="kpi">
-            <h3>Epidemiólogos</h3>
-            <strong>{{ total_epi }}</strong>
-            <p class="muted">Usuarios operativos registrados</p>
-        </article>
-        <article class="kpi">
-            <h3>Boletines</h3>
-            <strong>{{ total_boletines }}</strong>
-            <p class="muted">Total de boletines en el sistema</p>
-        </article>
-        <article class="kpi">
-            <h3>Publicados</h3>
-            <strong>{{ publicados }}</strong>
-            <p class="muted">Contenido disponible para consulta</p>
-        </article>
-    </div>
-</section>
+            <div class="flex flex-wrap gap-3">
+                <a class="inline-flex items-center justify-center rounded-xl bg-[#16A06B] px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#11875a]" href="{{ url_for('admin_dashboard') }}">Abrir dashboard</a>
+                <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" href="{{ url_for('admin_audit') }}">Ver auditoría</a>
+            </div>
+        </div>
+    </section>
 
-<section class="card">
-    <div class="actions">
-        <a class="btn btn-primary" href="{{ url_for('admin_epi_list') }}">Administrar epidemiólogos</a>
-        <a class="btn" href="{{ url_for('admin_bulletins') }}">Administrar boletines</a>
-        <a class="btn" href="{{ url_for('admin_bulletin_new') }}">Redactar boletín</a>
-        <a class="btn" href="{{ url_for('admin_audit') }}">Seguimiento de auditoría</a>
-    </div>
+    <section class="grid gap-4 md:grid-cols-3">
+        <article class="rounded-[22px] border border-slate-200 bg-white px-6 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+            <h3 class="text-sm font-extrabold uppercase tracking-[0.16em] text-slate-500">Epidemiólogos</h3>
+            <strong class="mt-3 block text-5xl font-black text-slate-900">{{ total_epi }}</strong>
+            <p class="mt-3 text-base text-slate-600">Usuarios operativos registrados</p>
+        </article>
+        <article class="rounded-[22px] border border-slate-200 bg-white px-6 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+            <h3 class="text-sm font-extrabold uppercase tracking-[0.16em] text-slate-500">Boletines</h3>
+            <strong class="mt-3 block text-5xl font-black text-slate-900">{{ total_boletines }}</strong>
+            <p class="mt-3 text-base text-slate-600">Total de boletines en el sistema</p>
+        </article>
+        <article class="rounded-[22px] border border-slate-200 bg-white px-6 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+            <h3 class="text-sm font-extrabold uppercase tracking-[0.16em] text-slate-500">Publicados</h3>
+            <strong class="mt-3 block text-5xl font-black text-slate-900">{{ publicados }}</strong>
+            <p class="mt-3 text-base text-slate-600">Contenido disponible para consulta</p>
+        </article>
+    </section>
+
+    <section class="rounded-[24px] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+        <div class="flex flex-wrap gap-3">
+            <a class="inline-flex items-center justify-center rounded-xl bg-[#16A06B] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#11875a]" href="{{ url_for('admin_epi_list') }}">Administrar epidemiólogos</a>
+            <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" href="{{ url_for('admin_bulletins') }}">Administrar boletines</a>
+            <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" href="{{ url_for('admin_bulletin_new') }}">Redactar boletín</a>
+            <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" href="{{ url_for('admin_audit') }}">Seguimiento de auditoría</a>
+        </div>
+    </section>
+
+    <section class="grid gap-6 xl:grid-cols-[0.95fr_1.35fr]">
+        <section class="rounded-[24px] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+            <div class="mb-4">
+                <h3 class="text-2xl font-black tracking-tight text-slate-900">Epidemiólogos registrados</h3>
+                <p class="mt-1 text-sm text-slate-600">Nombre del epidemiólogo, evento asignado y cantidad de boletines creados.</p>
+            </div>
+            <div class="space-y-3">
+                {% for item in epi_rows %}
+                    <article class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h4 class="text-lg font-extrabold text-slate-900">{{ item.user.full_name }}</h4>
+                                <p class="mt-1 text-sm text-slate-600">{{ item.event_label }}</p>
+                            </div>
+                            <div class="rounded-xl bg-white px-3 py-2 text-center shadow-sm">
+                                <div class="text-2xl font-black text-[#1D4E89]">{{ item.bulletin_count }}</div>
+                                <div class="text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Boletines</div>
+                            </div>
+                        </div>
+                    </article>
+                {% else %}
+                    <div class="rounded-2xl border border-dashed border-slate-300 px-4 py-10 text-center text-sm text-slate-500">No hay epidemiólogos registrados.</div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="rounded-[24px] border border-slate-200 bg-white px-5 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+            <div class="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h3 class="text-2xl font-black tracking-tight text-slate-900">Boletines recientes</h3>
+                    <p class="mt-1 text-sm text-slate-600">Últimos boletines del sistema con acceso a vista y exportación PDF.</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <a class="rounded-full border px-4 py-2 text-sm font-bold {% if status_filter == 'TODOS' %}border-[#2F5E2A] bg-[#2F5E2A] text-white{% else %}border-slate-300 bg-slate-50 text-slate-700{% endif %}" href="{{ url_for('admin_panel', estado='TODOS') }}">Todos</a>
+                    <a class="rounded-full border px-4 py-2 text-sm font-bold {% if status_filter == 'BORRADOR' %}border-[#2F5E2A] bg-[#2F5E2A] text-white{% else %}border-slate-300 bg-slate-50 text-slate-700{% endif %}" href="{{ url_for('admin_panel', estado='BORRADOR') }}">Borradores</a>
+                    <a class="rounded-full border px-4 py-2 text-sm font-bold {% if status_filter == 'PUBLICADO' %}border-[#2F5E2A] bg-[#2F5E2A] text-white{% else %}border-slate-300 bg-slate-50 text-slate-700{% endif %}" href="{{ url_for('admin_panel', estado='PUBLICADO') }}">Publicados</a>
+                </div>
+            </div>
+
+            <div class="mt-4 overflow-x-auto">
+                <table class="min-w-full border-separate border-spacing-0 overflow-hidden rounded-2xl">
+                    <thead>
+                        <tr class="bg-slate-100 text-left text-xs font-extrabold uppercase tracking-[0.14em] text-slate-600">
+                            <th class="px-4 py-4">Título del boletín</th>
+                            <th class="px-4 py-4">Semana Epidemiológica</th>
+                            <th class="px-4 py-4">Estado</th>
+                            <th class="px-4 py-4">Creado por</th>
+                            <th class="px-4 py-4">Última modificación</th>
+                            <th class="px-4 py-4">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in recent_bulletin_rows %}
+                            {% set b = item.bulletin %}
+                            <tr class="border-b border-slate-200 align-top">
+                                <td class="border-b border-slate-200 px-4 py-4">
+                                    <div class="text-base font-extrabold leading-tight text-slate-900">{{ b.title }}</div>
+                                    <div class="mt-1 text-sm text-slate-500">Evento {{ b.event_code }}{% if b.event %} - {{ b.event.name }}{% endif %}</div>
+                                </td>
+                                <td class="border-b border-slate-200 px-4 py-4 text-sm text-slate-700">{{ item.week_label }}</td>
+                                <td class="border-b border-slate-200 px-4 py-4">
+                                    <span class="inline-flex rounded-full px-3 py-1 text-sm font-extrabold {% if b.status == 'PUBLICADO' %}bg-emerald-100 text-emerald-800{% else %}bg-amber-100 text-amber-800{% endif %}">{{ b.status }}</span>
+                                </td>
+                                <td class="border-b border-slate-200 px-4 py-4 text-sm text-slate-700">{{ b.author.full_name if b.author else 'Sin autor' }}</td>
+                                <td class="border-b border-slate-200 px-4 py-4 text-sm text-slate-700">{{ b.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td class="border-b border-slate-200 px-4 py-4">
+                                    <div class="flex flex-wrap gap-2">
+                                        <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" href="{{ url_for('admin_bulletin_edit', bulletin_id=b.id) }}?preview=1#preview-root">Ver</a>
+                                        <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" href="{{ url_for('admin_bulletin_edit', bulletin_id=b.id) }}?download=pdf">Descargar PDF</a>
+                                    </div>
+                                </td>
+                            </tr>
+                        {% else %}
+                            <tr>
+                                <td colspan="6" class="px-4 py-10 text-center text-base text-slate-500">No hay boletines para el filtro seleccionado.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </section>
 </section>
 {% endblock %}

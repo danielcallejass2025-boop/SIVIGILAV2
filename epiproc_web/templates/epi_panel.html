@@ -1,17 +1,100 @@
 {% extends 'base.html' %}
 
-{% block content %}
-<section class="card">
-    <h2>Panel Epidemiólogo</h2>
-    {% if assigned_event %}
-        <p>Evento asignado: <strong>{{ assigned_event.code }} - {{ assigned_event.name }}</strong></p>
-    {% else %}
-        <p class="muted">No tienes evento asignado por ahora.</p>
-    {% endif %}
+{% block extra_head %}
+<script>
+    window.tailwind = window.tailwind || {};
+    window.tailwind.config = {
+        corePlugins: {
+            preflight: false
+        }
+    };
+</script>
+<script src="https://cdn.tailwindcss.com"></script>
+{% endblock %}
 
-    <div class="actions">
-        <a class="btn btn-primary" href="{{ url_for('epi_dashboard') }}">Ver dashboard de mi evento</a>
-        <a class="btn" href="{{ url_for('epi_bulletins') }}">Gestionar mis boletines</a>
-    </div>
+{% block content %}
+<section class="mx-auto max-w-6xl space-y-6">
+    <section class="rounded-[24px] border border-slate-200 bg-white px-6 py-6 shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+                <p class="mb-2 text-xs font-extrabold uppercase tracking-[0.22em] text-[#2F5E2A]">Panel Epidemiólogo</p>
+                <h2 class="text-4xl font-black tracking-tight text-slate-900">Seguimiento del evento asignado y gestión de boletines</h2>
+                {% if assigned_event %}
+                    <p class="mt-3 text-lg text-slate-600">Evento asignado: <strong>{{ assigned_event.code }} - {{ assigned_event.name }}</strong></p>
+                {% else %}
+                    <p class="mt-3 text-lg text-slate-600">No tienes evento asignado por ahora.</p>
+                {% endif %}
+            </div>
+
+            <div class="flex flex-wrap gap-3">
+                <a class="inline-flex items-center justify-center rounded-xl bg-[#16A06B] px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#11875a]" href="{{ url_for('epi_dashboard') }}">Ver dashboard de mi evento</a>
+                <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-6 py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50" href="{{ url_for('epi_bulletins') }}">Gestionar mis boletines</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="rounded-[24px] border border-slate-200 bg-white px-4 py-5 shadow-[0_12px_30px_rgba(15,23,42,0.06)] sm:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <h3 class="text-3xl font-black tracking-tight text-slate-900">Mis Boletines</h3>
+                <p class="mt-2 text-base text-slate-600">Boletines del evento asignado con acceso a edición, vista previa, descarga PDF y eliminación.</p>
+            </div>
+            <a class="inline-flex min-w-[220px] items-center justify-center rounded-xl bg-[#16A06B] px-6 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#11875a]" href="{{ url_for('epi_bulletin_new') }}">Crear Nuevo Boletín</a>
+        </div>
+
+        <div class="mt-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div class="flex flex-wrap gap-2">
+                <a class="rounded-full border px-4 py-2 text-sm font-bold {% if status_filter == 'TODOS' %}border-[#2F5E2A] bg-[#2F5E2A] text-white{% else %}border-slate-300 bg-slate-50 text-slate-700{% endif %}" href="{{ url_for('epi_panel', estado='TODOS') }}">Todos</a>
+                <a class="rounded-full border px-4 py-2 text-sm font-bold {% if status_filter == 'BORRADOR' %}border-[#2F5E2A] bg-[#2F5E2A] text-white{% else %}border-slate-300 bg-slate-50 text-slate-700{% endif %}" href="{{ url_for('epi_panel', estado='BORRADOR') }}">Borradores</a>
+                <a class="rounded-full border px-4 py-2 text-sm font-bold {% if status_filter == 'PUBLICADO' %}border-[#2F5E2A] bg-[#2F5E2A] text-white{% else %}border-slate-300 bg-slate-50 text-slate-700{% endif %}" href="{{ url_for('epi_panel', estado='PUBLICADO') }}">Publicados</a>
+            </div>
+            <a class="text-sm font-bold text-[#1D4E89] hover:text-[#163A66]" href="{{ url_for('epi_bulletins', estado=status_filter) }}">Abrir vista completa</a>
+        </div>
+
+        <div class="mt-4 overflow-x-auto">
+            <table class="min-w-full border-separate border-spacing-0 overflow-hidden rounded-2xl">
+                <thead>
+                    <tr class="bg-slate-100 text-left text-xs font-extrabold uppercase tracking-[0.14em] text-slate-600">
+                        <th class="px-4 py-4">Título</th>
+                        <th class="px-4 py-4">Semana Epidemiológica</th>
+                        <th class="px-4 py-4">Estado</th>
+                        <th class="px-4 py-4">Última modificación</th>
+                        <th class="px-4 py-4">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in bulletin_rows %}
+                        {% set b = item.bulletin %}
+                        <tr class="border-b border-slate-200 align-top">
+                            <td class="border-b border-slate-200 px-4 py-4">
+                                <div class="text-lg font-extrabold leading-tight text-slate-900">{{ b.title }}</div>
+                                <div class="mt-1 text-sm text-slate-500">Evento {{ b.event_code }}{% if b.event %} - {{ b.event.name }}{% endif %}</div>
+                            </td>
+                            <td class="border-b border-slate-200 px-4 py-4 text-base text-slate-700">{{ item.week_label }}</td>
+                            <td class="border-b border-slate-200 px-4 py-4">
+                                <span class="inline-flex rounded-full px-3 py-1 text-sm font-extrabold {% if b.status == 'PUBLICADO' %}bg-emerald-100 text-emerald-800{% else %}bg-amber-100 text-amber-800{% endif %}">{{ b.status }}</span>
+                            </td>
+                            <td class="border-b border-slate-200 px-4 py-4 text-base text-slate-700">{{ b.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td class="border-b border-slate-200 px-4 py-4">
+                                <div class="flex flex-wrap gap-2">
+                                    <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}">Editar</a>
+                                    <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}?preview=1#preview-root">Ver</a>
+                                    <a class="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}?download=pdf">Descargar PDF</a>
+                                    <form method="post" action="{{ url_for('epi_bulletin_delete', bulletin_id=b.id) }}" onsubmit="return confirm('¿Eliminar este boletín?');">
+                                        <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                                        <button type="submit" class="inline-flex items-center justify-center rounded-xl border border-red-300 bg-white px-4 py-2 text-sm font-bold text-red-600 hover:bg-red-50">Eliminar</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="5" class="px-4 py-10 text-center text-base text-slate-500">No hay boletines para el filtro seleccionado.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 </section>
 {% endblock %}

@@ -1,43 +1,203 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<section class="card row between center">
-    <div>
-        <h2>Mis Boletines</h2>
-        {% if assigned_event %}
-            <p class="muted">Evento asignado: {{ assigned_event.code }} - {{ assigned_event.name }}</p>
-        {% endif %}
-    </div>
-    <a class="btn btn-primary" href="{{ url_for('epi_bulletin_new') }}">Nuevo boletín</a>
+<section class="epi-page-shell">
+    <section class="epi-page-head">
+        <div>
+            <h2>Mis Boletines</h2>
+            {% if assigned_event %}
+                <p class="epi-muted">Evento asignado: {{ assigned_event.code }} - {{ assigned_event.name }}</p>
+            {% endif %}
+        </div>
+        <a class="btn btn-primary" href="{{ url_for('epi_bulletin_new') }}">Crear Nuevo Boletín</a>
+    </section>
+
+    <section class="card epi-page-card">
+        <div class="epi-toolbar">
+            <div class="epi-filter-group">
+                <a class="epi-filter-chip {% if status_filter == 'TODOS' %}active{% endif %}" href="{{ url_for('epi_bulletins', estado='TODOS') }}">Todos</a>
+                <a class="epi-filter-chip {% if status_filter == 'BORRADOR' %}active{% endif %}" href="{{ url_for('epi_bulletins', estado='BORRADOR') }}">Borradores</a>
+                <a class="epi-filter-chip {% if status_filter == 'PUBLICADO' %}active{% endif %}" href="{{ url_for('epi_bulletins', estado='PUBLICADO') }}">Publicados</a>
+            </div>
+            <a class="epi-link-secondary" href="{{ url_for('epi_panel', estado=status_filter) }}">Volver al panel</a>
+        </div>
+
+        <div class="table-wrap epi-table-wrap">
+            <table class="epi-table">
+                <thead>
+                    <tr>
+                        <th>Título</th>
+                        <th>Semana Epidemiológica</th>
+                        <th>Estado</th>
+                        <th>Última modificación</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item in bulletin_rows %}
+                        {% set b = item.bulletin %}
+                        <tr>
+                            <td>
+                                <div class="epi-title-cell">{{ b.title }}</div>
+                                <div class="epi-subcell">Evento {{ b.event_code }}{% if b.event %} - {{ b.event.name }}{% endif %}</div>
+                            </td>
+                            <td>{{ item.week_label }}</td>
+                            <td><span class="epi-status-tag {{ 'is-published' if b.status == 'PUBLICADO' else 'is-draft' }}">{{ b.status }}</span></td>
+                            <td>{{ b.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
+                            <td>
+                                <div class="epi-actions-cell">
+                                    <a class="btn btn-small" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}">Editar</a>
+                                    <a class="btn btn-small" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}?preview=1#preview-root">Ver</a>
+                                    <a class="btn btn-small" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}?download=pdf">Descargar PDF</a>
+                                    <form method="post" action="{{ url_for('epi_bulletin_delete', bulletin_id=b.id) }}" onsubmit="return confirm('¿Eliminar este boletín?');">
+                                        <input type="hidden" name="next" value="{{ request.full_path if request.query_string else request.path }}">
+                                        <button type="submit" class="btn btn-small btn-danger">Eliminar</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="5" class="epi-empty-row">No hay boletines para el filtro seleccionado.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
 </section>
 
-<section class="card">
-    <div class="table-wrap">
-        <table>
-            <thead>
-                <tr>
-                    <th>Título</th>
-                    <th>Evento</th>
-                    <th>Estado</th>
-                    <th>Actualizado</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for b in bulletins %}
-                    <tr>
-                        <td>{{ b.title }}</td>
-                        <td>{{ b.event_code }}</td>
-                        <td><span class="tag">{{ b.status }}</span></td>
-                        <td>{{ b.updated_at.strftime('%Y-%m-%d %H:%M') }}</td>
-                        <td>
-                            <a class="btn btn-small" href="{{ url_for('epi_bulletin_edit', bulletin_id=b.id) }}">Editar</a>
-                            <a class="btn btn-small" href="{{ url_for('download_bulletin', bulletin_id=b.id) }}">Descargar</a>
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</section>
+<style>
+    .epi-page-shell {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .epi-page-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+    }
+
+    .epi-page-card {
+        border-radius: 18px;
+    }
+
+    .epi-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-bottom: 1rem;
+    }
+
+    .epi-filter-group {
+        display: flex;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .epi-filter-chip {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        border: 1px solid #c9d7ea;
+        background: #f8fbff;
+        padding: 0.45rem 0.9rem;
+        color: #244061;
+        font-size: 0.9rem;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .epi-filter-chip.active {
+        border-color: #2f5e2a;
+        background: #2f5e2a;
+        color: #ffffff;
+    }
+
+    .epi-link-secondary {
+        color: #1d4e89;
+        font-weight: 700;
+        text-decoration: none;
+    }
+
+    .epi-table-wrap {
+        overflow-x: auto;
+    }
+
+    .epi-table {
+        width: 100%;
+        border-collapse: collapse;
+        min-width: 900px;
+    }
+
+    .epi-table th,
+    .epi-table td {
+        border-bottom: 1px solid #e5edf5;
+        padding: 0.9rem 0.75rem;
+        text-align: left;
+        vertical-align: top;
+    }
+
+    .epi-table th {
+        background: #f6f9fc;
+        color: #28425f;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .epi-title-cell {
+        font-weight: 700;
+        color: #10233c;
+    }
+
+    .epi-subcell {
+        margin-top: 0.2rem;
+        color: #64748b;
+        font-size: 0.82rem;
+    }
+
+    .epi-status-tag {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 0.35rem 0.7rem;
+        font-size: 0.8rem;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+    }
+
+    .epi-status-tag.is-draft {
+        background: #fff4d6;
+        color: #8a5b00;
+    }
+
+    .epi-status-tag.is-published {
+        background: #ddf2d8;
+        color: #1e5b28;
+    }
+
+    .epi-actions-cell {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+    }
+
+    .epi-actions-cell form {
+        margin: 0;
+    }
+
+    .epi-empty-row {
+        text-align: center;
+        color: #64748b;
+        padding: 1.5rem !important;
+    }
+</style>
 {% endblock %}

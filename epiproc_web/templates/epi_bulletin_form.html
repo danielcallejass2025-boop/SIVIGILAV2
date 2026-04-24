@@ -7,6 +7,7 @@
         {% set event_meta.name = e.name %}
     {% endif %}
 {% endfor %}
+{% set bulletin_logo_url = url_for('static', filename='img/logo_epiproc.png') %}
 
 {% block content %}
 <script>
@@ -25,14 +26,19 @@
     <header class="mb-4 rounded-xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
         <div class="flex flex-wrap items-center justify-between gap-4">
             <div class="flex items-center gap-3">
-                <img src="{{ logo_url }}" alt="EPIPROC" class="h-12 w-auto">
+                <img src="{{ bulletin_logo_url }}" alt="EPIPROC" class="h-12 w-auto">
                 <div>
                     <h2 id="page-editor-title" class="text-2xl font-bold text-slate-900">Boletín Epidemiológico - Vigilancia en Salud Pública</h2>
                     <p class="text-sm text-slate-600">Editor profesional para análisis epidemiológico institucional</p>
                 </div>
             </div>
-            <div id="header-periodo-label" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2F5E2A]">
-                Periodo I - Semana 04 de 2026
+            <div class="flex flex-wrap items-center justify-end gap-3">
+                {% if current_user and current_user.role == role_secretario %}
+                    <a href="{{ url_for('admin_panel') }}" class="inline-flex items-center justify-center rounded-xl bg-[#1D4E89] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#163A66]">&larr; Volver al Centro de Control</a>
+                {% endif %}
+                <div id="header-periodo-label" class="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-[#2F5E2A]">
+                    Periodo I - Semana 04 de 2026
+                </div>
             </div>
         </div>
     </header>
@@ -43,95 +49,108 @@
         <input type="hidden" id="form-event-code" name="event_code" value="{{ selected_event_code if selected_event_code else '' }}">
         <textarea id="form-content" name="content" class="hidden" minlength="20" aria-label="Contenido serializado del boletín" title="Contenido serializado del boletín" placeholder="Contenido serializado del boletín">{{ bulletin.content if bulletin else '' }}</textarea>
 
-        <div class="grid gap-6 lg:grid-cols-10">
-            <div class="lg:col-span-7">
-                <article id="preview-root" class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                    <section class="rounded-lg border border-slate-200 bg-white p-0">
-                        <div class="rounded-t-lg bg-[#2F5E2A] px-4 py-2 text-center text-xl font-bold text-white">Boletín Epidemiológico</div>
-                        <div class="border-b border-slate-200 px-4 py-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-700">Vigilancia en Salud Pública - Secretaría de Salud de Risaralda</div>
-                        <div class="px-4 py-4 text-center">
-                            <h1 id="preview-event-name" class="text-4xl font-extrabold text-[#D97706]">{{ event_meta.name }}</h1>
+        <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px] xl:items-start">
+            <div>
+                <article id="preview-root" class="boletin-sheet rounded-[22px] border border-slate-300 bg-white p-4 shadow-[0_18px_40px_rgba(15,23,42,0.08)] md:p-6 print:rounded-none print:border-0 print:p-0 print:shadow-none">
+                    <section class="boletin-cover overflow-hidden rounded-lg border border-slate-300 bg-white p-0">
+                        <div class="boletin-cover-top flex items-center gap-3 bg-[#2F5E2A] px-4 py-3 text-white">
+                            <img src="{{ bulletin_logo_url }}" alt="Risaralda" class="h-10 w-auto rounded-sm bg-white/95 p-1">
+                            <div class="min-w-0 flex-1 text-center">
+                                <div class="text-2xl font-extrabold leading-none tracking-tight">Boletín epidemiológico</div>
+                                <div class="mt-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/95">Vigilancia en salud pública</div>
+                                <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/90">Secretaría de Salud de Risaralda</div>
+                            </div>
+                        </div>
+                        <div class="border-b border-slate-300 px-4 py-4 text-center">
+                            <h1 id="preview-event-name" class="text-4xl font-extrabold tracking-tight text-[#E57A10] md:text-5xl">{{ event_meta.name }}</h1>
                             <p id="preview-periodo" class="mt-2 text-lg font-semibold text-[#2F5E2A]">Periodo Epidemiológico I - Semana Epidemiológica 04, 2026</p>
-
-                            <div class="mt-5 grid gap-3 sm:grid-cols-2">
-                                <div class="rounded-md border border-slate-200 bg-white p-4 text-center">
-                                    <div id="preview-total-casos" class="text-5xl font-black text-slate-900">0</div>
-                                    <div class="text-sm font-semibold uppercase tracking-wide text-slate-700">Casos reportados</div>
+                        </div>
+                        <div class="grid gap-0 border-t border-slate-200 md:grid-cols-[1.15fr_1fr]">
+                            <div class="flex items-center justify-center gap-4 border-b border-slate-200 px-6 py-5 md:border-b-0 md:border-r">
+                                <div class="boletin-cover-icon flex h-20 w-16 items-center justify-center rounded-full border border-[#D8CFC2] bg-[#F8F4EE] text-4xl text-[#9F7A63]">◔</div>
+                                <div class="text-left">
+                                    <div id="preview-total-casos" class="text-6xl font-black leading-none text-slate-900">0</div>
+                                    <div class="mt-1 text-sm font-semibold uppercase tracking-wide text-slate-700">Casos reportados</div>
                                 </div>
-                                <div class="rounded-md border border-red-200 bg-red-50 p-4 text-center">
-                                    <div class="flex items-center justify-center gap-2">
-                                        <span class="text-4xl font-black text-red-600">↑</span>
-                                        <div>
-                                            <div id="preview-variacion" class="text-3xl font-black text-red-700">0.0%</div>
-                                            <div class="text-sm font-semibold text-red-700">Aumento</div>
-                                        </div>
+                            </div>
+                            <div class="flex items-center justify-center gap-4 bg-white px-6 py-5">
+                                <div class="text-6xl font-black leading-none text-red-700">↑</div>
+                                <div class="text-left">
+                                    <div class="flex items-end gap-3">
+                                        <div id="preview-variacion" class="text-4xl font-black leading-none text-red-700">0.0%</div>
+                                        <div class="pb-1 text-sm font-semibold text-red-700">Aumento</div>
                                     </div>
-                                    <div id="preview-variacion-sub" class="mt-1 text-xs text-slate-600">comparado con SE 04 de 2025</div>
+                                    <div id="preview-variacion-sub" class="mt-2 text-xs text-slate-600">comparado con SE 04 de 2025</div>
                                 </div>
                             </div>
                         </div>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Introducción</h3>
-                        <textarea id="intro-main" class="h-44 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Texto de introducción del boletín" title="Texto de introducción del boletín" placeholder="Redacta aquí la introducción epidemiológica del boletín"></textarea>
+                        <textarea id="intro-main" class="boletin-editor-field h-44 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Texto de introducción del boletín" title="Texto de introducción del boletín" placeholder="Redacta aquí la introducción epidemiológica del boletín"></textarea>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Materiales y métodos</h3>
-                        <textarea id="methods-main" class="h-52 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Texto de materiales y métodos" title="Texto de materiales y métodos" placeholder="Describe población, depuración, definiciones operativas y método de análisis"></textarea>
+                        <textarea id="methods-main" class="boletin-editor-field h-52 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Texto de materiales y métodos" title="Texto de materiales y métodos" placeholder="Describe población, depuración, definiciones operativas y método de análisis"></textarea>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Comportamiento en Risaralda</h3>
-                        <div class="rounded-md border border-slate-200 p-3">
+                        <div class="boletin-chart-card boletin-chart-card-wide">
                             <h4 class="mb-2 text-sm font-semibold text-slate-700">Comportamiento de la notificación por SE</h4>
-                            <div class="h-[320px]"><canvas id="chart-semanas"></canvas></div>
+                            <div class="boletin-chart-frame boletin-chart-frame-wide"><canvas id="chart-semanas"></canvas></div>
                         </div>
-                        <div class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                        <div class="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+                            <div class="boletin-kpi-card rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
                                 <div id="kpi-total-casos" class="text-xl font-bold text-[#2F5E2A]">0</div>
                                 <div class="text-xs text-slate-600">Total casos</div>
                             </div>
-                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                            <div class="boletin-kpi-card rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
                                 <div id="kpi-hospitalizados" class="text-xl font-bold text-[#0F766E]">0.0%</div>
                                 <div class="text-xs text-slate-600">% hospitalizados</div>
                             </div>
-                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                            <div class="boletin-kpi-card rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
                                 <div id="kpi-uci" class="text-xl font-bold text-[#1D4E89]">0.0%</div>
                                 <div class="text-xs text-slate-600">% UCI</div>
                             </div>
-                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                            <div class="boletin-kpi-card rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
                                 <div id="kpi-letalidad" class="text-xl font-bold text-[#991B1B]">0.0%</div>
                                 <div class="text-xs text-slate-600">% letalidad</div>
                             </div>
-                            <div class="rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
+                            <div class="boletin-kpi-card rounded-md border border-slate-200 bg-slate-50 p-3 text-center">
                                 <div id="kpi-razon" class="text-xl font-bold text-[#B45309]">0.0</div>
                                 <div class="text-xs text-slate-600">Razón departamental</div>
                             </div>
                         </div>
-                        <textarea id="behavior-main" class="mt-3 h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa de comportamiento en Risaralda" title="Narrativa de comportamiento en Risaralda" placeholder="Redacta interpretación del comportamiento semanal"></textarea>
+                        <textarea id="behavior-main" class="boletin-editor-field mt-3 h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa de comportamiento en Risaralda" title="Narrativa de comportamiento en Risaralda" placeholder="Redacta interpretación del comportamiento semanal"></textarea>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Variables Sociodemográficas</h3>
 
-                        <div class="mb-3 grid gap-2 sm:grid-cols-3 lg:grid-cols-5" id="vulnerables-grid">
-                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Indígena</div><div id="vul-indigena" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
-                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Afrodescendiente</div><div id="vul-afro" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
-                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Migrante</div><div id="vul-migrante" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
-                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Desplazados</div><div id="vul-desplazado" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
-                            <div class="rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="font-semibold">Hospitalizados</div><div id="vul-hosp" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                        <div class="boletin-vulnerables-grid mb-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-5" id="vulnerables-grid">
+                            <div class="boletin-vulnerable-card rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="boletin-vul-icon">△</div><div class="font-semibold">Indígena</div><div id="vul-indigena" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="boletin-vulnerable-card rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="boletin-vul-icon">○</div><div class="font-semibold">Afrodescendiente</div><div id="vul-afro" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="boletin-vulnerable-card rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="boletin-vul-icon">⇄</div><div class="font-semibold">Migrante</div><div id="vul-migrante" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="boletin-vulnerable-card rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="boletin-vul-icon">⌂</div><div class="font-semibold">Desplazados</div><div id="vul-desplazado" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
+                            <div class="boletin-vulnerable-card rounded border border-slate-200 bg-slate-50 p-2 text-center text-xs"><div class="boletin-vul-icon">✚</div><div class="font-semibold">Hospitalizados</div><div id="vul-hosp" class="mt-1 text-base font-black text-[#2F5E2A]">0%</div></div>
                         </div>
 
-                        <div class="grid gap-3 md:grid-cols-2">
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Distribución por grupo de edad</h4><div class="h-[230px]"><canvas id="chart-edad"></canvas></div></div>
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Área de residencia</h4><div class="h-[230px]"><canvas id="chart-area"></canvas></div></div>
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Estrato socioeconómico</h4><div class="h-[230px]"><canvas id="chart-estrato"></canvas></div></div>
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Afiliación</h4><div class="h-[230px]"><canvas id="chart-afiliacion"></canvas></div></div>
+                        <div class="boletin-visual-grid">
+                            <div class="boletin-chart-card boletin-chart-card-tall">
+                                <h4 class="mb-2 text-sm font-semibold">Morbilidad Materna Extrema por grupo de edad</h4>
+                                <div class="boletin-chart-frame boletin-chart-frame-tall"><canvas id="chart-edad"></canvas></div>
+                            </div>
+                            <div class="boletin-subchart-grid">
+                                <div class="boletin-chart-card boletin-chart-card-compact"><h4 class="mb-2 text-center text-sm font-semibold">Afiliación</h4><div class="boletin-chart-frame boletin-chart-frame-compact"><canvas id="chart-afiliacion"></canvas></div></div>
+                                <div class="boletin-chart-card boletin-chart-card-compact"><h4 class="mb-2 text-center text-sm font-semibold">Área de residencia</h4><div class="boletin-chart-frame boletin-chart-frame-compact"><canvas id="chart-area"></canvas></div></div>
+                                <div class="boletin-chart-card boletin-chart-card-compact boletin-chart-card-span"><h4 class="mb-2 text-center text-sm font-semibold">Estrato socioeconómico</h4><div class="boletin-chart-frame boletin-chart-frame-compact"><canvas id="chart-estrato"></canvas></div></div>
+                            </div>
                         </div>
 
-                        <div class="mt-3 overflow-x-auto rounded-md border border-slate-200">
+                        <div class="boletin-table-wrap boletin-table-wrap-wide mt-3 overflow-x-auto rounded-md border border-slate-200 boletin-compact-table">
                             <table class="w-full border-collapse text-sm">
                                 <thead class="bg-slate-100">
                                     <tr>
@@ -146,19 +165,22 @@
                             </table>
                         </div>
 
-                        <textarea id="socio-main" class="mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa sociodemográfica" title="Narrativa sociodemográfica" placeholder="Redacta interpretación sociodemográfica"></textarea>
+                        <textarea id="socio-main" class="boletin-editor-field mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa sociodemográfica" title="Narrativa sociodemográfica" placeholder="Redacta interpretación sociodemográfica"></textarea>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Variables Clínicas</h3>
-                        <div class="grid gap-3 md:grid-cols-3">
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Terminación de la gestación</h4><div class="h-[220px]"><canvas id="chart-terminacion"></canvas></div></div>
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Momento del evento</h4><div class="h-[220px]"><canvas id="chart-momento"></canvas></div></div>
-                            <div class="rounded-md border border-slate-200 p-3"><h4 class="mb-2 text-sm font-semibold">Semanas de gestación</h4><div class="h-[220px]"><canvas id="chart-sem-ges"></canvas></div></div>
+                        <div class="boletin-two-col-grid">
+                            <div class="boletin-chart-card boletin-chart-card-compact"><h4 class="mb-2 text-center text-sm font-semibold">Terminación de la gestación</h4><div class="boletin-chart-frame boletin-chart-frame-compact"><canvas id="chart-terminacion"></canvas></div></div>
+                            <div class="boletin-chart-card boletin-chart-card-compact"><h4 class="mb-2 text-center text-sm font-semibold">Momento del evento</h4><div class="boletin-chart-frame boletin-chart-frame-compact"><canvas id="chart-momento"></canvas></div></div>
+                        </div>
+                        <div class="boletin-chart-card boletin-chart-card-wide mt-3">
+                            <h4 class="mb-2 text-sm font-semibold">Número de casos según semanas de gestación</h4>
+                            <div class="boletin-chart-frame boletin-chart-frame-medium"><canvas id="chart-sem-ges"></canvas></div>
                         </div>
 
-                        <div class="mt-3 grid gap-3 md:grid-cols-2">
-                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                        <div class="boletin-two-col-grid mt-3">
+                            <div class="boletin-table-wrap overflow-x-auto rounded-md border border-slate-200 boletin-compact-table">
                                 <table class="w-full border-collapse text-sm">
                                     <thead class="bg-slate-100">
                                         <tr>
@@ -171,7 +193,7 @@
                                 </table>
                             </div>
 
-                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                            <div class="boletin-table-wrap overflow-x-auto rounded-md border border-slate-200 boletin-compact-table">
                                 <table class="w-full border-collapse text-sm">
                                     <thead class="bg-slate-100">
                                         <tr>
@@ -185,21 +207,28 @@
                             </div>
                         </div>
 
-                        <textarea id="clinical-main" class="mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa clínica" title="Narrativa clínica" placeholder="Redacta interpretación clínica"></textarea>
+                        <textarea id="clinical-main" class="boletin-editor-field mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa clínica" title="Narrativa clínica" placeholder="Redacta interpretación clínica"></textarea>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Indicadores de interés epidemiológico</h3>
                         <p id="nv-warning" class="mb-2 hidden rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800"></p>
 
-                        <div class="grid gap-3 xl:grid-cols-2">
-                            <div class="overflow-x-auto rounded-md border border-slate-200">
-                                <table class="w-full border-collapse text-sm">
+                        <div class="boletin-indicator-grid">
+                            <div class="boletin-table-wrap boletin-municipio-panel overflow-x-auto rounded-md border border-slate-200 boletin-compact-table">
+                                <h4 class="boletin-subtitle px-4 pt-4">Razón de MME por municipio de residencia por 1.000 NV</h4>
+                                <table class="boletin-municipio-table w-full border-collapse text-sm">
+                                    <colgroup>
+                                        <col class="boletin-col-municipio">
+                                        <col class="boletin-col-num boletin-col-num-tight">
+                                        <col class="boletin-col-num boletin-col-num-wide">
+                                        <col class="boletin-col-num boletin-col-num-wide">
+                                    </colgroup>
                                     <thead class="bg-slate-100">
                                         <tr>
                                             <th class="border border-slate-300 px-2 py-2 text-left">Municipio</th>
                                             <th class="border border-slate-300 px-2 py-2 text-center">N° casos</th>
-                                            <th class="border border-slate-300 px-2 py-2 text-center">Nacidos vivos</th>
+                                            <th class="border border-slate-300 px-2 py-2 text-center">Nacidos vivos<br>2026</th>
                                             <th class="border border-slate-300 px-2 py-2 text-center">Razón MME</th>
                                         </tr>
                                     </thead>
@@ -208,19 +237,21 @@
                                 </table>
                             </div>
 
-                            <div class="rounded-md border border-slate-200 p-3">
-                                <h4 class="mb-2 text-sm font-semibold">Mapa de Risaralda por nivel de riesgo</h4>
-                                <div id="mapa-risaralda" class="relative h-[420px] overflow-hidden rounded-md border border-slate-200 bg-slate-100"></div>
-                                <div class="mt-2 space-y-1 text-xs text-slate-700">
-                                    <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#8B1A1A]"></span>Rojo intenso (&gt; 150)</div>
-                                    <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#F4B400]"></span>Naranja (70 - 150)</div>
-                                    <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#A8D5BA]"></span>Verde (&lt; 70)</div>
+                            <div class="boletin-map-panel rounded-md border border-slate-200 p-4">
+                                <div class="boletin-map-header">
+                                    <h4 class="boletin-subtitle">Mapa de Risaralda por nivel de riesgo</h4>
+                                    <div class="boletin-map-legend text-xs text-slate-700">
+                                        <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#8B1A1A]"></span>Rojo intenso (&gt; 150)</div>
+                                        <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#F4B400]"></span>Naranja (70 - 150)</div>
+                                        <div><span class="mr-2 inline-block h-3 w-4 border border-black/15 bg-[#A8D5BA]"></span>Verde (&lt; 70)</div>
+                                    </div>
                                 </div>
+                                <div id="mapa-risaralda" class="boletin-map-frame relative overflow-hidden rounded-md border border-slate-200 bg-slate-100"></div>
                             </div>
                         </div>
 
-                        <div class="mt-3 grid gap-3 md:grid-cols-2">
-                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                        <div class="boletin-two-col-grid mt-3">
+                            <div class="boletin-table-wrap overflow-x-auto rounded-md border border-slate-200 boletin-compact-table">
                                 <table class="w-full border-collapse text-sm">
                                     <thead class="bg-slate-100">
                                         <tr>
@@ -234,7 +265,7 @@
                                 </table>
                             </div>
 
-                            <div class="overflow-x-auto rounded-md border border-slate-200">
+                            <div class="boletin-table-wrap overflow-x-auto rounded-md border border-slate-200 boletin-compact-table">
                                 <table class="w-full border-collapse text-sm">
                                     <thead class="bg-slate-100">
                                         <tr>
@@ -247,17 +278,17 @@
                             </div>
                         </div>
 
-                        <textarea id="indicator-main" class="mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa de indicadores" title="Narrativa de indicadores" placeholder="Redacta interpretación de indicadores de interés epidemiológico"></textarea>
+                        <textarea id="indicator-main" class="boletin-editor-field mt-3 h-32 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Narrativa de indicadores" title="Narrativa de indicadores" placeholder="Redacta interpretación de indicadores de interés epidemiológico"></textarea>
                     </section>
 
-                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4">
+                    <section class="boletin-pdf-section mt-4 rounded-lg border border-slate-200 p-4 md:p-5">
                         <h3 class="section-title">Observaciones finales</h3>
-                        <textarea id="obs-main" class="h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Observaciones finales del boletín" title="Observaciones finales del boletín" placeholder="Redacta aquí observaciones finales y recomendaciones"></textarea>
+                        <textarea id="obs-main" class="boletin-editor-field h-28 w-full rounded-md border border-slate-300 p-3 text-sm leading-relaxed text-slate-700" aria-label="Observaciones finales del boletín" title="Observaciones finales del boletín" placeholder="Redacta aquí observaciones finales y recomendaciones"></textarea>
                     </section>
                 </article>
             </div>
 
-            <aside class="lg:col-span-3">
+            <aside>
                 <div class="sticky top-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
                     <h3 class="mb-3 text-base font-bold text-[#2F5E2A]">Panel lateral</h3>
 
@@ -298,25 +329,290 @@
 </section>
 
 <style>
+    :root {
+        --boletin-green: #2F5E2A;
+        --boletin-orange: #E57A10;
+        --boletin-ink: #0f172a;
+        --boletin-soft: #eef3f7;
+        --boletin-border: #cfd8e3;
+    }
+
+    .boletin-sheet {
+        width: min(100%, 210mm);
+        margin: 0 auto;
+        color: #18212f;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        background:
+            linear-gradient(180deg, #ffffff 0%, #fbfdff 100%),
+            linear-gradient(135deg, rgba(47, 94, 42, 0.03), rgba(229, 122, 16, 0.03));
+    }
+
     .boletin-pdf-section {
+        break-inside: avoid;
+        page-break-inside: avoid;
+        background: linear-gradient(180deg, #ffffff 0%, #fcfdff 100%);
+        box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02);
+    }
+
+    .boletin-cover {
         break-inside: avoid;
         page-break-inside: avoid;
     }
 
     .section-title {
-        margin-bottom: 0.6rem;
+        margin-bottom: 0.75rem;
         border-radius: 6px;
-        background: #2F5E2A;
-        padding: 0.45rem 0.8rem;
+        background: var(--boletin-green);
+        padding: 0.55rem 0.95rem;
         color: #fff;
-        font-size: 0.95rem;
-        font-weight: 700;
-        letter-spacing: 0.01em;
+        font-size: 0.98rem;
+        font-weight: 800;
+        letter-spacing: 0.005em;
+        text-transform: none;
+    }
+
+    .boletin-subtitle {
+        margin: 0;
+        color: #1f2937;
+        font-size: 0.9rem;
+        font-weight: 800;
+        line-height: 1.3;
+    }
+
+    .boletin-editor-field {
+        background: #fffefb;
+        border-color: #d7dee8;
+        box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.03);
+        font-size: 0.89rem;
+        line-height: 1.6;
+    }
+
+    .boletin-chart-card,
+    .boletin-table-wrap,
+    .boletin-map-panel {
+        border-color: #d7dee8;
+        background: linear-gradient(180deg, #ffffff 0%, #fdfefe 100%);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+    }
+
+    .boletin-chart-card {
+        border-radius: 0.65rem;
+        border-width: 1px;
+        padding: 0.9rem 1rem;
+    }
+
+    .boletin-chart-card-wide {
+        padding-bottom: 0.75rem;
+    }
+
+    .boletin-chart-card-tall {
+        min-height: 0;
+    }
+
+    .boletin-chart-card-compact {
+        min-height: 15.5rem;
+    }
+
+    .boletin-chart-card-span {
+        grid-column: 1 / -1;
+    }
+
+    .boletin-chart-frame {
+        position: relative;
+        width: 100%;
+    }
+
+    .boletin-chart-frame-wide {
+        min-height: 16.5rem;
+    }
+
+    .boletin-chart-frame-medium {
+        min-height: 13.75rem;
+    }
+
+    .boletin-chart-frame-tall {
+        min-height: 13.25rem;
+    }
+
+    .boletin-chart-frame-compact {
+        min-height: 12.25rem;
+    }
+
+    .boletin-visual-grid,
+    .boletin-two-col-grid,
+    .boletin-indicator-grid {
+        display: grid;
+        gap: 0.9rem;
+    }
+
+    .boletin-visual-grid,
+    .boletin-two-col-grid {
+        align-items: start;
+    }
+
+    .boletin-indicator-grid {
+        align-items: stretch;
+    }
+
+    .boletin-subchart-grid {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .boletin-table-wrap {
+        border-radius: 0.65rem;
+        border-width: 1px;
+    }
+
+    .boletin-table-wrap table {
+        width: 100%;
+    }
+
+    .boletin-table-wrap-wide {
+        overflow-x: auto;
+    }
+
+    .boletin-municipio-panel {
+        padding-top: 0;
+    }
+
+    .boletin-municipio-panel table {
+        table-layout: fixed;
+    }
+
+    .boletin-municipio-table {
+        width: 100% !important;
+        min-width: 0 !important;
+        table-layout: fixed !important;
+    }
+
+    .boletin-col-municipio {
+        width: 40%;
+    }
+
+    .boletin-col-num {
+        width: 20%;
+    }
+
+    .boletin-col-num-tight {
+        width: 15%;
+    }
+
+    .boletin-col-num-wide {
+        width: 22.5%;
+    }
+
+    .boletin-map-panel {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        gap: 0.75rem;
+        min-height: 100%;
+    }
+
+    .boletin-map-header {
+        display: grid;
+        gap: 0.55rem;
+    }
+
+    .boletin-map-legend {
+        display: grid;
+        gap: 0.3rem;
+    }
+
+    .boletin-map-frame {
+        min-height: 26rem;
+        height: 100%;
+    }
+
+    .boletin-kpi-card {
+        min-height: 78px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+    }
+
+    .boletin-vulnerable-card {
+        min-height: 92px;
+    }
+
+    .boletin-vul-icon {
+        margin: 0 auto 0.3rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 999px;
+        border: 1px solid #cfd8e3;
+        background: #ffffff;
+        color: #5c6670;
+        font-size: 1rem;
+        font-weight: 800;
+    }
+
+    .boletin-compact-table table th,
+    .boletin-compact-table table td {
+        padding: 0.58rem 0.72rem;
+        font-size: 0.84rem;
+        line-height: 1.3;
+        vertical-align: middle;
+    }
+
+    .boletin-compact-table table th {
+        background: #f2f5f8;
+        color: #1f2937;
+        font-weight: 800;
+        white-space: nowrap;
+    }
+
+    .boletin-compact-table table tbody tr:nth-child(even) td {
+        background: #fafcfe;
+    }
+
+    .boletin-compact-table table tfoot td {
+        font-weight: 800;
+    }
+
+    .boletin-municipio-panel td:first-child,
+    .boletin-municipio-panel th:first-child {
+        white-space: normal;
+        word-break: break-word;
+    }
+
+    .boletin-municipio-panel td:nth-child(n + 2),
+    .boletin-municipio-panel th:nth-child(n + 2) {
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    .boletin-municipio-table th,
+    .boletin-municipio-table td {
+        padding: 0.42rem 0.34rem;
+        font-size: 0.75rem;
+        line-height: 1.14;
+    }
+
+    .boletin-municipio-table th {
+        white-space: normal;
+    }
+
+    .boletin-municipio-table th:nth-child(2),
+    .boletin-municipio-table th:nth-child(4),
+    .boletin-municipio-table td:nth-child(2),
+    .boletin-municipio-table td:nth-child(3),
+    .boletin-municipio-table td:nth-child(4) {
+        white-space: nowrap;
     }
 
     #preview-root canvas {
         width: 100% !important;
         height: 100% !important;
+    }
+
+    #preview-root img {
+        image-rendering: auto;
     }
 
     .ratio-high {
@@ -374,7 +670,125 @@
         opacity: 1;
     }
 
+    .map-label {
+        fill: #0f172a;
+        font-size: 10.5px;
+        font-weight: 700;
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.95), 0 0 4px rgba(255, 255, 255, 0.85);
+        pointer-events: none;
+    }
+
+    .map-label-bg {
+        fill: rgba(255, 255, 255, 0.72);
+        pointer-events: none;
+    }
+
+    .map-label-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: visible;
+    }
+
+    .map-label-node {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.84);
+        padding: 2px 5px;
+        color: #0f172a;
+        font-size: 9.75px;
+        font-weight: 800;
+        line-height: 1.1;
+        text-align: center;
+        white-space: nowrap;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+    }
+
+    @media (min-width: 900px) {
+        .boletin-visual-grid {
+            grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
+        }
+
+        .boletin-two-col-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .boletin-indicator-grid {
+            grid-template-columns: minmax(0, 1.22fr) minmax(0, 1fr);
+        }
+    }
+
+    @media (min-width: 1180px) {
+        .boletin-indicator-grid {
+            grid-template-columns: minmax(0, 55%) minmax(0, 45%);
+        }
+    }
+
+    @media (max-width: 1280px) {
+        #preview-event-name {
+            font-size: 2.5rem;
+        }
+
+        .boletin-map-frame {
+            min-height: 22.5rem;
+        }
+    }
+
+    @media (max-width: 900px) {
+        .boletin-cover-top {
+            flex-direction: column;
+            text-align: center;
+        }
+
+        #preview-event-name {
+            font-size: 2rem;
+        }
+
+        .boletin-subchart-grid {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .boletin-chart-card-span {
+            grid-column: auto;
+        }
+
+        .boletin-map-frame {
+            min-height: 20rem;
+        }
+    }
+
     @media print {
+        @page {
+            size: A4 portrait;
+            margin: 6mm;
+        }
+
+        body {
+            background: #ffffff;
+        }
+
+        .container {
+            max-width: 100%;
+            padding: 0;
+        }
+
+        .boletin-sheet {
+            box-shadow: none;
+            border: none;
+            padding: 0;
+            width: 100%;
+        }
+
+        .boletin-pdf-section {
+            margin-top: 12px !important;
+            border-color: #d0d7df;
+        }
+
+        .boletin-map-frame {
+            min-height: 175mm;
+        }
+
         .topbar,
         .footer,
         .gov-top-strip,
@@ -408,6 +822,22 @@
         'SANTA ROSA DE CABAL': 87,
         SANTUARIO: 11
     };
+    const RISARALDA_LABEL_COORDS = {
+        APIA: [-75.78, 5.08],
+        BALBOA: [-75.68, 4.75],
+        'BELEN DE UMBRIA': [-75.80, 5.27],
+        DOSQUEBRADAS: [-75.73, 4.84],
+        GUATICA: [-75.59, 5.30],
+        'LA CELIA': [-75.65, 4.98],
+        'LA VIRGINIA': [-75.88, 4.86],
+        MARSELLA: [-75.73, 4.95],
+        MISTRATO: [-75.93, 5.18],
+        PEREIRA: [-75.70, 4.81],
+        'PUEBLO RICO': [-75.64, 5.22],
+        QUINCHIA: [-75.69, 5.03],
+        'SANTA ROSA DE CABAL': [-75.63, 4.85],
+        SANTUARIO: [-75.74, 5.55]
+    };
 
     const initialContentRaw = {{ (bulletin.content if bulletin else '')|tojson }};
     const FALLBACK_TEXTS = {
@@ -429,7 +859,8 @@
         dataTimestamp: null,
         geojson: null,
         charts: {},
-        useAutoNarrative: true
+        useAutoNarrative: true,
+        autoDownloadHandled: false
     };
 
     const els = {
@@ -451,6 +882,8 @@
         obsSide: document.getElementById('obs-side'),
         syncStatus: document.getElementById('sync-status')
     };
+
+    const pageQuery = new URLSearchParams(window.location.search);
 
     function normalizeText(value) {
         return String(value || '')
@@ -813,7 +1246,7 @@
         if (String(direct).trim() !== '') return boolLike(direct);
         const delay = getNotificationDelay(row);
         if (delay === null) return false;
-        return delay <= 1;
+        return delay <= 7;
     }
 
     function isDeathOutcome(row) {
@@ -1112,12 +1545,11 @@
                 svg.setAttribute('role', 'img');
                 svg.classList.add('h-full', 'w-full');
 
-                let tooltip = container.querySelector('.map-tooltip');
-                if (!tooltip) {
-                    tooltip = document.createElement('div');
-                    tooltip.className = 'map-tooltip';
-                    container.appendChild(tooltip);
-                }
+                const labelsLayer = document.createElement('div');
+                labelsLayer.className = 'map-label-layer';
+
+                const tooltip = document.createElement('div');
+                tooltip.className = 'map-tooltip';
 
                 features.forEach((feature) => {
                     const props = feature.properties || {};
@@ -1154,7 +1586,21 @@
                     svg.appendChild(path);
                 });
 
+                summary.filas.forEach((row) => {
+                    const coords = RISARALDA_LABEL_COORDS[normalizeText(row.municipio)];
+                    if (!coords) return;
+                    const [labelX, labelY] = project(coords, bounds, width, height, pad);
+                    const node = document.createElement('div');
+                    node.className = 'map-label-node';
+                    node.style.left = `${(labelX / width) * 100}%`;
+                    node.style.top = `${(labelY / height) * 100}%`;
+                    node.textContent = row.municipio;
+                    labelsLayer.appendChild(node);
+                });
+
+                container.appendChild(tooltip);
                 container.appendChild(svg);
+                container.appendChild(labelsLayer);
             })
             .catch((error) => {
                 container.innerHTML = `<div class="p-3 text-sm text-red-700">${error.message}</div>`;
@@ -1619,10 +2065,17 @@
 
         const filename = `Boletin_${getCurrentEventCode()}_SE${String(state.selectedWeek).padStart(2, '0')}_${state.selectedYear}.pdf`;
         const options = {
-            margin: [6, 6, 6, 6],
+            margin: [5, 5, 5, 5],
             filename,
-            image: { type: 'jpeg', quality: 0.98 },
-            html2canvas: { scale: 2, useCORS: true, backgroundColor: '#ffffff' },
+            image: { type: 'jpeg', quality: 0.99 },
+            html2canvas: {
+                scale: 2.6,
+                useCORS: true,
+                backgroundColor: '#ffffff',
+                logging: false,
+                windowWidth: 1400,
+                allowTaint: false
+            },
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
             pagebreak: { mode: ['css', 'legacy'] }
         };
@@ -1635,6 +2088,23 @@
             await fetchData();
             fillWeekSelector(state.allRows);
             actualizarDatosBoletin();
+
+            if (pageQuery.get('preview') === '1') {
+                const node = document.getElementById('preview-root');
+                if (node) {
+                    node.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+
+            if (pageQuery.get('download') === 'pdf' && !state.autoDownloadHandled) {
+                state.autoDownloadHandled = true;
+                window.setTimeout(() => {
+                    descargarPdf().finally(() => {
+                        const cleanUrl = window.location.pathname;
+                        window.history.replaceState({}, document.title, cleanUrl);
+                    });
+                }, 180);
+            }
         } catch (error) {
             if (els.syncStatus) {
                 els.syncStatus.textContent = `Error de sincronización: ${error.message}`;

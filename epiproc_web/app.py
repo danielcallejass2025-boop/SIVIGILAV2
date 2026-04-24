@@ -484,6 +484,97 @@ def _migrate_legacy_visible_passwords() -> None:
         db.session.commit()
 
 
+def _extract_bulletin_week_meta(bulletin: Bulletin) -> dict[str, Any]:
+    sources = [bulletin.content or "", bulletin.title or ""]
+    patterns = [
+        re.compile(r"Semana\s+Epidemiol[oó]gica\s*(\d{1,2})[,\s]+(\d{4})", re.IGNORECASE),
+        re.compile(r"Semana\s*(\d{1,2})\s+de\s+(\d{4})", re.IGNORECASE),
+    ]
+
+    for source in sources:
+        for pattern in patterns:
+            match = pattern.search(source)
+            if match:
+                week = int(match.group(1))
+                year = int(match.group(2))
+                return {
+                    "week": week,
+                    "year": year,
+                    "label": f"SE {week:02d} / {year}",
+                }
+
+    return {
+        "week": None,
+        "year": None,
+        "label": "Sin semana detectada",
+    }
+
+
+def _get_epi_bulletin_rows(user: User, status_filter: str = "TODOS") -> list[dict[str, Any]]:
+    query = Bulletin.query.filter_by(author_id=user.id)
+
+    if user.assigned_event_code:
+        query = query.filter(Bulletin.event_code == user.assigned_event_code)
+
+    if status_filter in {BulletinStatus.BORRADOR, BulletinStatus.PUBLICADO}:
+        query = query.filter(Bulletin.status == status_filter)
+
+    bulletins = query.order_by(Bulletin.updated_at.desc()).all()
+    rows: list[dict[str, Any]] = []
+
+    for bulletin in bulletins:
+        week_meta = _extract_bulletin_week_meta(bulletin)
+        rows.append({
+            "bulletin": bulletin,
+            "week_label": week_meta["label"],
+            "week": week_meta["week"],
+            "year": week_meta["year"],
+        })
+
+    return rows
+
+
+def _get_admin_epidemiologo_rows() -> list[dict[str, Any]]:
+    users = User.query.filter_by(role=UserRole.EPIDEMIOLOGO).order_by(User.full_name.asc()).all()
+    rows: list[dict[str, Any]] = []
+
+    for user in users:
+        assigned_event = user.assigned_event
+        event_label = (
+            f"{assigned_event.code} - {assigned_event.name}"
+            if assigned_event is not None
+            else "Sin evento asignado"
+        )
+        rows.append({
+            "user": user,
+            "event_label": event_label,
+            "bulletin_count": len(user.bulletins or []),
+        })
+
+    return rows
+
+
+def _get_admin_recent_bulletin_rows(status_filter: str = "TODOS", limit: int = 12) -> list[dict[str, Any]]:
+    query = Bulletin.query
+
+    if status_filter in {BulletinStatus.BORRADOR, BulletinStatus.PUBLICADO}:
+        query = query.filter(Bulletin.status == status_filter)
+
+    bulletins = query.order_by(Bulletin.updated_at.desc()).limit(limit).all()
+    rows: list[dict[str, Any]] = []
+
+    for bulletin in bulletins:
+        week_meta = _extract_bulletin_week_meta(bulletin)
+        rows.append({
+            "bulletin": bulletin,
+            "week_label": week_meta["label"],
+            "week": week_meta["week"],
+            "year": week_meta["year"],
+        })
+
+    return rows
+
+
 def register_hooks(app: Flask, base_dir: Path) -> None:
     @app.context_processor
     def inject_globals() -> dict[str, Any]:
@@ -781,12 +872,19 @@ def register_routes(app: Flask, base_dir: Path) -> None:
         total_epi = User.query.filter_by(role=UserRole.EPIDEMIOLOGO).count()
         total_boletines = Bulletin.query.count()
         publicados = Bulletin.query.filter_by(status=BulletinStatus.PUBLICADO).count()
+        status_filter = (request.args.get("estado") or "TODOS").strip().upper()
+        epi_rows = _get_admin_epidemiologo_rows()
+        recent_bulletin_rows = _get_admin_recent_bulletin_rows(status_filter)
 
         return render_template(
             "admin_panel.html",
             total_epi=total_epi,
             total_boletines=total_boletines,
             publicados=publicados,
+            epi_rows=epi_rows,
+            recent_bulletin_rows=recent_bulletin_rows,
+            status_filter=status_filter,
+            compact_topnav=True,
         )
 
     @app.route("/admin/dashboard")
@@ -1291,7 +1389,15 @@ def register_routes(app: Flask, base_dir: Path) -> None:
     def epi_panel():
         user = current_user()
         assert user is not None
-        return render_template("epi_panel.html", assigned_event=user.assigned_event)
+        status_filter = (request.args.get("estado") or "TODOS").strip().upper()
+        bulletin_rows = _get_epi_bulletin_rows(user, status_filter)
+        return render_template(
+            "epi_panel.html",
+            assigned_event=user.assigned_event,
+            bulletin_rows=bulletin_rows,
+            status_filter=status_filter,
+            compact_topnav=True,
+        )
 
     @app.route("/epi/dashboard")
     @role_required(UserRole.EPIDEMIOLOGO)
@@ -1314,9 +1420,15 @@ def register_routes(app: Flask, base_dir: Path) -> None:
         user = current_user()
         assert user is not None
 
-        q = Bulletin.query.filter_by(author_id=user.id)
-        bulletins = q.order_by(Bulletin.updated_at.desc()).all()
-        return render_template("epi_bulletins.html", bulletins=bulletins, assigned_event=user.assigned_event)
+        status_filter = (request.args.get("estado") or "TODOS").strip().upper()
+        bulletin_rows = _get_epi_bulletin_rows(user, status_filter)
+        return render_template(
+            "epi_bulletins.html",
+            bulletins=[row["bulletin"] for row in bulletin_rows],
+            bulletin_rows=bulletin_rows,
+            assigned_event=user.assigned_event,
+            status_filter=status_filter,
+        )
 
     @app.route("/epi/boletines/nuevo", methods=["GET", "POST"])
     @role_required(UserRole.EPIDEMIOLOGO)
@@ -1334,6 +1446,33 @@ def register_routes(app: Flask, base_dir: Path) -> None:
             abort(403)
 
         return _save_bulletin_form(user=user, is_admin=False, bulletin=bulletin)
+
+    @app.route("/epi/boletines/<int:bulletin_id>/eliminar", methods=["POST"])
+    @role_required(UserRole.EPIDEMIOLOGO)
+    def epi_bulletin_delete(bulletin_id: int):
+        bulletin = Bulletin.query.get_or_404(bulletin_id)
+        user = current_user()
+        assert user is not None
+
+        if bulletin.author_id != user.id:
+            abort(403)
+
+        deleted_title = bulletin.title
+        deleted_status = bulletin.status
+        deleted_event = bulletin.event_code
+
+        db.session.delete(bulletin)
+        db.session.commit()
+        log_action(
+            "DELETE_BULLETIN",
+            "BULLETIN",
+            str(bulletin_id),
+            f"Titulo={deleted_title}, estado={deleted_status}, evento={deleted_event}",
+        )
+        flash("Boletín eliminado exitosamente.", "success")
+
+        next_url = request.form.get("next") or request.referrer or url_for("epi_panel")
+        return redirect(next_url)
 
     def _save_bulletin_form(user: Optional[User], is_admin: bool, bulletin: Optional[Bulletin]):
         assert user is not None
@@ -1370,7 +1509,7 @@ def register_routes(app: Flask, base_dir: Path) -> None:
             if errors:
                 for err in errors:
                     flash(err, "error")
-                template_name = "admin_bulletin_form.html" if is_admin else "epi_bulletin_form.html"
+                template_name = "epi_bulletin_form.html"
                 return render_template(template_name, bulletin=bulletin, eventos=eventos, assigned_event=assigned_event_code)
 
             if bulletin is None:
@@ -1414,7 +1553,7 @@ def register_routes(app: Flask, base_dir: Path) -> None:
 
             return redirect(url_for("admin_bulletins" if is_admin else "epi_bulletins"))
 
-        template_name = "admin_bulletin_form.html" if is_admin else "epi_bulletin_form.html"
+        template_name = "epi_bulletin_form.html"
         return render_template(template_name, bulletin=bulletin, eventos=eventos, assigned_event=assigned_event_code)
 
 
