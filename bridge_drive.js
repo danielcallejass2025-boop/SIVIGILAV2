@@ -40,6 +40,7 @@ const PYTHON_EXE = fs.existsSync(VENV_PYTHON)
 const MAIN_PY = path.join(BASE_DIR, "main.py");
 
 const EXTENSIONES_BINARIAS = new Set([".xlsx", ".xls", ".xlsm", ".ods"]);
+const MIME_GOOGLE_SHEETS = "application/vnd.google-apps.spreadsheet";
 
 // ============================================================
 // CACHE DE ARCHIVOS YA PROCESADOS
@@ -170,11 +171,27 @@ function obtenerExtensionArchivo(nombre) {
   return path.extname(String(nombre || "")).toLowerCase();
 }
 
+function esHojaGoogle(file) {
+  return String(file?.tipo || file?.mimeType || "").toLowerCase() === MIME_GOOGLE_SHEETS;
+}
+
+function resolverNombreDescarga(file) {
+  const nombreOriginal = String(file?.nombre || file?.name || "").trim();
+  if (!nombreOriginal) return nombreOriginal;
+
+  if (esHojaGoogle(file) && !obtenerExtensionArchivo(nombreOriginal)) {
+    return `${nombreOriginal}.xlsx`;
+  }
+
+  return nombreOriginal;
+}
+
 function esArchivoBinario(file) {
   const nombre = file?.nombre || file?.name || "";
   const tipo = String(file?.tipo || file?.mimeType || "").toLowerCase();
   const ext = obtenerExtensionArchivo(nombre);
 
+  if (tipo === MIME_GOOGLE_SHEETS) return false;
   if (EXTENSIONES_BINARIAS.has(ext)) return true;
   if (tipo.includes("spreadsheet") || tipo.includes("excel") || tipo.includes("opendocument")) {
     return true;
@@ -240,6 +257,34 @@ async function descargarBinarioDirectoDrive(fileId, rutaLocal, nombre) {
   return rutaLocal;
 }
 
+async function exportarGoogleSheetComoXlsx(fileId, rutaLocal, nombre) {
+  const urlExport = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(fileId)}/export?format=xlsx`;
+  const response = await fetch(urlExport, { method: "GET", redirect: "follow" });
+
+  if (!response.ok) {
+    throw new Error(`Export Google Sheets HTTP ${response.status}: ${response.statusText}`);
+  }
+
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.includes("spreadsheetml") && !contentType.includes("octet-stream")) {
+    throw new Error(`Export Google Sheets devolvió content-type inesperado: ${contentType || "desconocido"}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  const buffer = Buffer.from(arrayBuffer);
+  if (!buffer.length) {
+    throw new Error("Export Google Sheets devolvió archivo vacío");
+  }
+
+  if (!validarFirmaBinaria(buffer, nombre)) {
+    throw new Error("Export Google Sheets sin firma XLSX válida");
+  }
+
+  fs.writeFileSync(rutaLocal, buffer);
+  console.log(`  ✓ Descargado (export Google Sheets): ${nombre} (${buffer.length} bytes)`);
+  return rutaLocal;
+}
+
 /**
  * Descarga un archivo y lo guarda localmente.
  * Para binarios intenta descarga directa Drive (preserva bytes).
@@ -248,9 +293,10 @@ async function descargarBinarioDirectoDrive(fileId, rutaLocal, nombre) {
  * @returns {Promise<string|null>} Ruta local del archivo descargado
  */
 async function descargarArchivo(file) {
-  const nombre = file.nombre || file.name;
+  const nombre = resolverNombreDescarga(file);
   const fileId = file.id;
   const archivoBinario = esArchivoBinario(file);
+  const hojaGoogle = esHojaGoogle(file);
 
   if (!nombre || !fileId) {
     console.error("  ✗ Archivo sin nombre o ID, no se puede descargar");
@@ -265,6 +311,15 @@ async function descargarArchivo(file) {
   const rutaLocal = path.join(INPUT_DIR, nombre);
 
   try {
+    if (hojaGoogle) {
+      try {
+        return await exportarGoogleSheetComoXlsx(fileId, rutaLocal, nombre);
+      } catch (exportErr) {
+        console.warn(`  ⚠ Export Google Sheets no disponible: ${exportErr.message}`);
+        console.warn("  ↪ Intentando respaldo por Apps Script...");
+      }
+    }
+
     if (archivoBinario) {
       try {
         return await descargarBinarioDirectoDrive(fileId, rutaLocal, nombre);
