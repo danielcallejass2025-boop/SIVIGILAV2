@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 import html
 from config.settings import Settings
+from scripts.cliente_boletin_apps_script import BulletinAppsScriptClient
 from scripts.utils import Logger, ConfigManager
 
 
@@ -23,6 +24,7 @@ class GeneradorBoletin:
         self.logger = Logger()
         self.settings = Settings()
         self.config = ConfigManager()
+        self._comparacion_cache = {}
     
     def generar_boletin(self, df: pd.DataFrame, evento_codigo: int = None,
                        formato: str = "texto") -> str:
@@ -47,6 +49,7 @@ class GeneradorBoletin:
         """Genera boletín en formato de texto plano"""
         
         lineas = []
+        comparacion_semanal = self._obtener_comparacion_semanal(df, evento_codigo)
         
         # Encabezado
         lineas.append("=" * 80)
@@ -73,6 +76,27 @@ class GeneradorBoletin:
         
         lineas.append("")
         lineas.append(f"Total de casos: {len(df)}")
+
+        if comparacion_semanal:
+            lineas.append("")
+            lineas.append("Comparación semanal del boletín:")
+            lineas.append(
+                f"  • Semana epidemiológica {comparacion_semanal['week']} de {comparacion_semanal['target_year']}: "
+                f"{comparacion_semanal['current_year_cases']} casos"
+            )
+            lineas.append(
+                f"  • Misma semana de {comparacion_semanal['previous_year']}: "
+                f"{comparacion_semanal['previous_year_cases']} casos"
+            )
+            lineas.append(
+                f"  • Diferencia: {comparacion_semanal['difference_text']}"
+            )
+            lineas.append(
+                f"  • Comportamiento: {comparacion_semanal['trend_label']}"
+            )
+            lineas.append(
+                f"  • Interpretación: {comparacion_semanal['summary_sentence']}"
+            )
         
         if "municipio" in df.columns:
             municipios_unicos = df["municipio"].nunique()
@@ -145,6 +169,7 @@ class GeneradorBoletin:
         """Genera boletín en formato HTML"""
         
         html_parts = []
+        comparacion_semanal = self._obtener_comparacion_semanal(df, evento_codigo)
         
         # Estilos CSS
         html_parts.append("""
@@ -285,6 +310,24 @@ class GeneradorBoletin:
             """)
         
         html_parts.append("</div>")
+
+        if comparacion_semanal:
+            html_parts.append(f"""
+                <div class="section">
+                    <h2>↔️ Comparación Semanal</h2>
+                    <p>
+                        Para la semana epidemiológica {comparacion_semanal['week']} de {comparacion_semanal['target_year']}
+                        se registraron <strong>{comparacion_semanal['current_year_cases']} casos</strong>, frente a
+                        <strong>{comparacion_semanal['previous_year_cases']} casos</strong> en la misma semana de
+                        {comparacion_semanal['previous_year']}.
+                    </p>
+                    <ul>
+                        <li>Diferencia: {html.escape(comparacion_semanal['difference_text'])}</li>
+                        <li>Comportamiento: {html.escape(comparacion_semanal['trend_label'])}</li>
+                        <li>{html.escape(comparacion_semanal['summary_sentence'])}</li>
+                    </ul>
+                </div>
+            """)
         
         # Municipios más afectados
         if "municipio" in df.columns:
@@ -368,6 +411,132 @@ class GeneradorBoletin:
         """)
         
         return "".join(html_parts)
+
+    def _obtener_comparacion_semanal(self, df: pd.DataFrame, evento_codigo: Optional[int]) -> Optional[Dict[str, Any]]:
+        """Obtiene la comparación de la semana del boletín contra la misma semana del año anterior."""
+        if evento_codigo is None:
+            return None
+
+        periodo = self._resolver_periodo_boletin(df)
+        if periodo is None:
+            return None
+
+        anio, semana = periodo
+        cache_key = (int(evento_codigo), anio, semana)
+        if cache_key in self._comparacion_cache:
+            return self._comparacion_cache[cache_key]
+
+        try:
+            client = BulletinAppsScriptClient()
+            comparacion = client.comparar_semana(anio=anio, semana=semana)
+        except Exception as exc:
+            self.logger.warning(
+                f"No fue posible consultar la comparación semanal del boletín para la semana {semana} de {anio}: {exc}"
+            )
+            self._comparacion_cache[cache_key] = None
+            return None
+
+        response_event_code = comparacion.get("event_code")
+        if response_event_code is not None and int(response_event_code) != int(evento_codigo):
+            self.logger.warning(
+                f"Se omitió la comparación semanal: el Apps Script respondió para el evento {response_event_code} "
+                f"y el boletín se está generando para el evento {evento_codigo}."
+            )
+            self._comparacion_cache[cache_key] = None
+            return None
+
+        trend_code = str(comparacion.get("trend") or "sin_dato").strip().lower()
+        current_cases = comparacion.get("current_year_cases")
+        previous_cases = comparacion.get("previous_year_cases")
+        difference = comparacion.get("absolute_change")
+        percent_change = comparacion.get("percent_change")
+        trend_label = self._traducir_tendencia_comparativa(trend_code)
+
+        enriched = {
+            **comparacion,
+            "week": int(comparacion.get("week") or semana),
+            "target_year": int(comparacion.get("target_year") or anio),
+            "previous_year": int(comparacion.get("previous_year") or (anio - 1)),
+            "current_year_cases": current_cases,
+            "previous_year_cases": previous_cases,
+            "difference_text": self._formatear_diferencia(difference, percent_change),
+            "trend_label": trend_label,
+            "summary_sentence": self._construir_resumen_tendencia(
+                week=int(comparacion.get("week") or semana),
+                target_year=int(comparacion.get("target_year") or anio),
+                previous_year=int(comparacion.get("previous_year") or (anio - 1)),
+                current_cases=current_cases,
+                previous_cases=previous_cases,
+                difference=difference,
+                percent_change=percent_change,
+                trend_label=trend_label,
+            ),
+        }
+
+        self._comparacion_cache[cache_key] = enriched
+        return enriched
+
+    @staticmethod
+    def _resolver_periodo_boletin(df: pd.DataFrame) -> Optional[tuple[int, int]]:
+        """Deriva año ISO y semana ISO usando la fecha más reciente del archivo del boletín."""
+        if "fecha_notificacion" not in df.columns:
+            return None
+
+        fechas = pd.to_datetime(df["fecha_notificacion"], errors="coerce").dropna()
+        if fechas.empty:
+            return None
+
+        fecha_referencia = fechas.max()
+        iso = fecha_referencia.isocalendar()
+        return int(iso.year), int(iso.week)
+
+    @staticmethod
+    def _traducir_tendencia_comparativa(trend_code: str) -> str:
+        mapeo = {
+            "aumento": "aumentó",
+            "disminucion": "disminuyó",
+            "igual": "se mantuvo",
+            "sin_dato": "sin dato comparable",
+        }
+        return mapeo.get(trend_code, trend_code or "sin dato comparable")
+
+    @staticmethod
+    def _formatear_diferencia(difference: Any, percent_change: Any) -> str:
+        if difference is None:
+            return "sin diferencia calculable"
+
+        texto = f"{difference} casos"
+        if percent_change is not None:
+            texto += f" ({percent_change}%)"
+        return texto
+
+    @staticmethod
+    def _construir_resumen_tendencia(
+        week: int,
+        target_year: int,
+        previous_year: int,
+        current_cases: Any,
+        previous_cases: Any,
+        difference: Any,
+        percent_change: Any,
+        trend_label: str,
+    ) -> str:
+        if current_cases is None or previous_cases is None:
+            return (
+                f"No fue posible comparar la semana {week} de {target_year} con la misma semana de {previous_year}."
+            )
+
+        resumen = (
+            f"La semana {week} de {target_year} presentó {current_cases} casos frente a {previous_cases} "
+            f"en la misma semana de {previous_year}; el comportamiento {trend_label}"
+        )
+
+        if difference is not None:
+            resumen += f" con una diferencia de {difference} casos"
+            if percent_change is not None:
+                resumen += f" ({percent_change}%)"
+
+        return resumen + "."
     
     @staticmethod
     def _traducir_sexo(sexo: str) -> str:

@@ -12,6 +12,15 @@ from typing import List, Dict, Set
 from datetime import datetime, timedelta
 from collections import defaultdict
 
+for stream_name in ("stdout", "stderr"):
+    stream = getattr(sys, stream_name, None)
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 # Agregar proyecto al path
 sys.path.insert(0, str(Path(__file__).parent))
 

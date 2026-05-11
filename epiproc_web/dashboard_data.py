@@ -9,6 +9,9 @@ from typing import Any, Optional
 
 import pandas as pd
 
+from config.settings import Settings
+from scripts.google_sheets_store import Historico549SheetStore
+
 
 @dataclass
 class DataCache:
@@ -327,7 +330,6 @@ def find_latest_depurado_file(base_dir: Path, event_code: int) -> Optional[Path]
         f for f in files
         if f.is_file()
         and "_boletin" not in _normalize_text(f.name)
-        and "_reporte" not in _normalize_text(f.name)
         and ".error" not in _normalize_text(f.name)
     ]
     if not files:
@@ -340,6 +342,97 @@ def find_latest_depurado_file(base_dir: Path, event_code: int) -> Optional[Path]
             return max(canonicos, key=lambda x: x.stat().st_mtime)
 
     return max(files, key=lambda x: x.stat().st_mtime)
+
+
+def _build_weekly_counts_by_year(df: pd.DataFrame, col_semana: Optional[str], col_ano: Optional[str]) -> dict[int, dict[int, int]]:
+    if not col_semana or not col_ano:
+        return {}
+
+    sem = pd.to_numeric(df[col_semana], errors="coerce")
+    ano = pd.to_numeric(df[col_ano], errors="coerce")
+    tmp = pd.DataFrame({"semana": sem, "anio": ano}).dropna()
+    if tmp.empty:
+        return {}
+
+    tmp["semana"] = tmp["semana"].astype(int)
+    tmp["anio"] = tmp["anio"].astype(int)
+    tmp = tmp[(tmp["semana"] >= 1) & (tmp["semana"] <= 53) & (tmp["anio"] >= 1900) & (tmp["anio"] <= 2100)]
+    if tmp.empty:
+        return {}
+
+    grouped = tmp.groupby(["anio", "semana"]).size().reset_index(name="casos")
+    out: dict[int, dict[int, int]] = {}
+    for row in grouped.itertuples(index=False):
+        anio = int(row.anio)
+        semana = int(row.semana)
+        casos = int(row.casos)
+        out.setdefault(anio, {})[semana] = casos
+    return out
+
+
+def _build_historico_sheet_context(
+    df_full: pd.DataFrame,
+    col_semana: Optional[str],
+    col_ano: Optional[str],
+    municipio: Optional[str],
+) -> dict[str, Any]:
+    try:
+        settings = Settings()
+        spreadsheet_id = str(settings.HISTORICO_549_SPREADSHEET_ID or "").strip()
+        sheet_name = str(settings.HISTORICO_549_SHEET_NAME or "").strip()
+        if not spreadsheet_id or not sheet_name:
+            return {
+                "enabled": False,
+                "source": "google_sheets",
+                "message": "HISTORICO_549 no configurado",
+            }
+
+        store = Historico549SheetStore()
+        sync_info: Optional[dict[str, Any]] = None
+
+        # Solo sincroniza cuando no hay filtro municipal para no contaminar la base histórica general.
+        if not municipio:
+            weekly_counts = _build_weekly_counts_by_year(df_full, col_semana, col_ano)
+            if weekly_counts:
+                sync_info = store.upsert_weekly_counts(weekly_counts)
+
+        dataset = store.obtener_casos_por_anio()
+        raw_cases: dict[int, dict[int, int]] = dataset.get("cases_by_year") or {}
+        cases_by_year = {
+            str(int(year)): {str(int(week)): int(cases) for week, cases in (week_map or {}).items()}
+            for year, week_map in raw_cases.items()
+        }
+
+        years_available = sorted([int(y) for y in (dataset.get("years_available") or [])])
+        return {
+            "enabled": True,
+            "source": "google_sheets",
+            "spreadsheet_id": spreadsheet_id,
+            "sheet_name": sheet_name,
+            "years_available": years_available,
+            "cases_by_year": cases_by_year,
+            "sync": sync_info,
+        }
+    except Exception as exc:
+        return {
+            "enabled": False,
+            "source": "google_sheets",
+            "error": str(exc),
+        }
+
+
+def _historico_week_cases(historico_sheet: dict[str, Any], anio: int, semana: int) -> Optional[int]:
+    cases_by_year = (historico_sheet or {}).get("cases_by_year") or {}
+    year_map = cases_by_year.get(str(int(anio))) if isinstance(cases_by_year, dict) else None
+    if not isinstance(year_map, dict):
+        return None
+    value = year_map.get(str(int(semana)))
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except Exception:
+        return None
 
 
 def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[str] = None) -> dict[str, Any]:
@@ -371,8 +464,13 @@ def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[st
 
     col_municipio = _first_existing_col(columns, ["nmun_resi", "municipio", "mun_resi", "nom_mun_r"])
     col_semana = _first_existing_col(columns, ["semana"])
+    col_ano = _first_existing_col(columns, ["a_o", "ano", "año", "anio", "year"])
     col_edad = _first_existing_col(columns, ["edad"])
     col_sexo = _first_existing_col(columns, ["sexo"])
+
+    historico_sheet = None
+    if int(event_code) == 549:
+        historico_sheet = _build_historico_sheet_context(df_full, col_semana, col_ano, municipio)
 
     total_sin_filtro = len(df_full)
     df = df_full
@@ -455,6 +553,7 @@ def build_dashboard_data(base_dir: Path, event_code: int, municipio: Optional[st
                 "por_grupo_edad": age_groups,
                 "por_sexo": by_sexo,
             },
+            "historico_sheet": historico_sheet,
         },
     }
 
@@ -495,7 +594,7 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
 
     col_municipio = _first_existing_col(columns, ["nmun_resi", "municipio", "mun_resi", "nom_mun_r"])
     col_semana = _first_existing_col(columns, ["semana"])
-    col_ano = _first_existing_col(columns, ["ano", "año"])
+    col_ano = _first_existing_col(columns, ["a_o", "ano", "año", "anio", "year"])
     col_edad = _first_existing_col(columns, ["edad"])
     col_afiliacion = _first_existing_col(columns, ["tip_ss", "tipo_afiliacion", "afiliacion"])
     col_fec_not = _first_existing_col(columns, ["fec_not", "fecha_notificacion"])
@@ -509,6 +608,8 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
     col_causa = _first_existing_col(columns, ["caus_agrup", "caus_princ"])
     col_momento = _first_existing_col(columns, ["term_gesta", "moc_rel_tg"])
     col_num_vivos = _first_existing_col(columns, ["num_vivos"])
+
+    historico_sheet = _build_historico_sheet_context(df_full, col_semana, col_ano, municipio)
 
     municipios_disponibles: list[str] = []
     if col_municipio:
@@ -571,9 +672,21 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
             g = tmp.groupby(["ano", "sem"]).size().reset_index(name="casos")
             sems = sorted(tmp["sem"].unique().tolist())
             for sem in sems:
-                actual = int(g[(g["ano"] == anio) & (g["sem"] == sem)]["casos"].sum())
-                previo = int(g[(g["ano"] == anio - 1) & (g["sem"] == sem)]["casos"].sum())
-                semanas.append({"semana": int(sem), "casos": actual, "año2025": previo})
+                actual_local = int(g[(g["ano"] == anio) & (g["sem"] == sem)]["casos"].sum())
+                previo_local = int(g[(g["ano"] == anio - 1) & (g["sem"] == sem)]["casos"].sum())
+                actual_sheet = _historico_week_cases(historico_sheet, anio, int(sem))
+                previo_sheet = _historico_week_cases(historico_sheet, anio - 1, int(sem))
+
+                actual = int(actual_sheet) if actual_sheet is not None else actual_local
+                previo = int(previo_sheet) if previo_sheet is not None else previo_local
+
+                semanas.append({
+                    "semana": int(sem),
+                    "casos": actual,
+                    "año2025": previo,
+                    f"año{anio - 1}": previo,
+                    "anio_comparacion": int(anio - 1),
+                })
         else:
             vc = sem_series.value_counts().sort_index()
             for sem, casos in vc.items():
@@ -764,6 +877,7 @@ def build_legacy_evento_549_payload(base_dir: Path, municipio: Optional[str] = N
             "municipios_disponibles": municipios_disponibles,
             "data_version": data_version,
             "cleanedData": cleaned_records,
+            "historico_sheet": historico_sheet,
             "dashboard_data": dashboard_data,
         },
     }

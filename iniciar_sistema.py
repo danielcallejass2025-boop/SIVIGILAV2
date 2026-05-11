@@ -3,14 +3,15 @@ iniciar_sistema.py
 Lanzador principal del sistema EPIPROCESS
 Inicia todos los servicios del backend en paralelo:
   1. Servidor Dashboard (puerto 8000)
-  2. Monitor Google Drive via Apps Script bridge (bridge_drive.js)
-  3. Procesamiento de archivos locales pendientes
+    2. Monitor Google Drive nativo (monitor.py + OAuth)
+    3. (Opcional) Procesamiento de archivos locales pendientes
 
 Uso:
-  python iniciar_sistema.py                → Inicia todo (dashboard + monitoreo + procesa locales)
+    python iniciar_sistema.py                → Inicia dashboard + monitoreo (SIN procesar locales)
   python iniciar_sistema.py --solo-dash    → Solo inicia el dashboard
-  python iniciar_sistema.py --solo-bridge  → Solo inicia el bridge/monitoreo
+    python iniciar_sistema.py --solo-monitor → Solo inicia el monitoreo continuo
   python iniciar_sistema.py --solo-local   → Solo procesa archivos locales
+    python iniciar_sistema.py --con-local    → Modo completo + procesamiento local inicial
   python iniciar_sistema.py --intervalo 60 → Cambia intervalo de monitoreo a 60s
 """
 
@@ -22,6 +23,15 @@ import subprocess
 import threading
 from pathlib import Path
 from datetime import datetime
+
+for stream_name in ("stdout", "stderr"):
+    stream = getattr(sys, stream_name, None)
+    reconfigure = getattr(stream, "reconfigure", None)
+    if callable(reconfigure):
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
 
 # Agregar proyecto al path
 BASE_DIR = Path(__file__).parent
@@ -35,10 +45,8 @@ from scripts.utils import Logger
 # CONFIGURACIÓN
 # ============================================================
 
-PYTHON_EXE = sys.executable
-NODE_EXE = "node"
 SERVIDOR_DASHBOARD = str(BASE_DIR / "servidor_dashboard.py")
-BRIDGE_DRIVE = str(BASE_DIR / "bridge_drive.js")
+MONITOR_PY = str(BASE_DIR / "monitor.py")
 MAIN_PY = str(BASE_DIR / "main.py")
 
 # Colores para la terminal
@@ -57,17 +65,82 @@ class SistemaEPIPROCESS:
     Orquestador principal que levanta todos los servicios del backend EPIPROCESS
     """
 
-    def __init__(self, intervalo_bridge: int = 30):
+    def __init__(self, intervalo_monitor: int = 30, procesar_local_arranque: bool = False):
         self.logger = Logger()
         self.settings = Settings()
         self.procesos = []
         self.hilos = []
         self.ejecutando = True
-        self.intervalo_bridge = intervalo_bridge
+        self.intervalo_monitor = intervalo_monitor
+        self.procesar_local_arranque = procesar_local_arranque
+        self.python_exe = self._resolver_python_executable()
 
         # Registrar señal de parada limpia
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+
+    @staticmethod
+    def _candidatos_python() -> list[str]:
+        """Devuelve candidatos de intérprete Python priorizando venv local."""
+        candidatos = []
+
+        env_py = os.getenv("EPIPROC_PYTHON_EXE", "").strip()
+        if env_py:
+            candidatos.append(env_py)
+
+        base = BASE_DIR
+        rutas_locales = [
+            base / ".venv" / "Scripts" / "python.exe",
+            base / "venv" / "Scripts" / "python.exe",
+            base / ".venv" / "bin" / "python",
+            base / "venv" / "bin" / "python",
+        ]
+        candidatos.extend(str(r) for r in rutas_locales if r.exists())
+        candidatos.append(sys.executable)
+
+        # Elimina duplicados preservando orden.
+        vistos = set()
+        unicos = []
+        for ruta in candidatos:
+            key = os.path.abspath(str(ruta)).lower()
+            if key in vistos:
+                continue
+            vistos.add(key)
+            unicos.append(str(ruta))
+
+        return unicos
+
+    @staticmethod
+    def _python_tiene_modulo(python_exe: str, modulo: str) -> bool:
+        """Verifica si un intérprete Python tiene disponible un módulo."""
+        try:
+            codigo = f"import importlib.util,sys;sys.exit(0 if importlib.util.find_spec('{modulo}') else 1)"
+            resultado = subprocess.run(
+                [python_exe, "-c", codigo],
+                capture_output=True,
+                text=True,
+                timeout=6,
+            )
+            return resultado.returncode == 0
+        except Exception:
+            return False
+
+    def _resolver_python_executable(self) -> str:
+        """Resuelve el intérprete para subprocesos, priorizando uno con Flask."""
+        candidatos = self._candidatos_python()
+
+        for py in candidatos:
+            if self._python_tiene_modulo(py, "flask"):
+                if os.path.abspath(py).lower() != os.path.abspath(sys.executable).lower():
+                    self.logger.info(f"Usando intérprete alterno para servicios: {py}")
+                return py
+
+        fallback = sys.executable
+        self.logger.warning(
+            "No se encontró intérprete con Flask en venv local. "
+            f"Se usará el Python actual: {fallback}"
+        )
+        return fallback
 
     def _signal_handler(self, sig, frame):
         """Manejo limpio de Ctrl+C"""
@@ -105,7 +178,7 @@ class SistemaEPIPROCESS:
 
         try:
             proc = subprocess.Popen(
-                [PYTHON_EXE, SERVIDOR_DASHBOARD],
+                [self.python_exe, SERVIDOR_DASHBOARD],
                 cwd=str(BASE_DIR),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -136,86 +209,56 @@ class SistemaEPIPROCESS:
             return False
 
     # ============================================================
-    # SERVICIO 2: Bridge Google Drive (bridge_drive.js)
+    # SERVICIO 2: Monitor Google Drive nativo (monitor.py)
     # ============================================================
 
-    def iniciar_bridge_monitoreo(self):
+    def iniciar_monitor_monitoreo(self):
         """
-        Ejecuta el bridge de Google Apps Script en ciclos periódicos.
-        Descarga archivos nuevos y los procesa con main.py
+        Ejecuta el monitor nativo de Google Drive en un subproceso.
+        Usa OAuth directo y elimina la dependencia del bridge Apps Script.
         """
-        self.logger.info("Iniciando monitoreo via bridge Apps Script...")
+        self.logger.info("Iniciando monitoreo nativo de Google Drive...")
         print(f"\n{CYAN}{'─'*60}")
-        print(f"  📡 BRIDGE — Monitoreo Google Drive (Apps Script)")
+        print(f"  📡 MONITOR — Google Drive nativo (OAuth)")
         print(f"{'─'*60}{RESET}")
-        print(f"  Intervalo: {self.intervalo_bridge}s")
-        print(f"  Archivo:   bridge_drive.js --procesar")
+        print(f"  Intervalo: {self.intervalo_monitor}s")
+        print(f"  Archivo:   monitor.py --intervalo {self.intervalo_monitor}")
         print(f"  Estado:    Iniciando...\n")
 
-        hilo = threading.Thread(
-            target=self._ciclo_bridge,
-            daemon=True
-        )
-        hilo.start()
-        self.hilos.append(hilo)
+        try:
+            proc = subprocess.Popen(
+                [self.python_exe, MONITOR_PY, "--intervalo", str(self.intervalo_monitor)],
+                cwd=str(BASE_DIR),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                encoding="utf-8",
+                errors="replace"
+            )
+            self.procesos.append(proc)
 
-        print(f"  {VERDE}✓ Monitoreo bridge activado{RESET}\n")
-        return True
+            hilo = threading.Thread(
+                target=self._leer_salida,
+                args=(proc, "MONITOR"),
+                daemon=True
+            )
+            hilo.start()
+            self.hilos.append(hilo)
 
-    def _ciclo_bridge(self):
-        """Ciclo continuo que ejecuta bridge_drive.js --procesar cada N segundos"""
-        ciclo = 0
-        while self.ejecutando:
-            ciclo += 1
-            timestamp = datetime.now().strftime("%H:%M:%S")
+            print(f"  {VERDE}✓ Monitoreo nativo activado (PID: {proc.pid}){RESET}\n")
+            return True
 
-            try:
-                print(f"\n{DIM}[{timestamp}] Bridge ciclo #{ciclo} — Revisando Drive...{RESET}")
+        except FileNotFoundError:
+            print(f"  {ROJO}✗ No se encontró monitor.py{RESET}\n")
+            return False
+        except Exception as e:
+            print(f"  {ROJO}✗ Error iniciando monitor nativo: {e}{RESET}\n")
+            return False
 
-                resultado = subprocess.run(
-                    [NODE_EXE, BRIDGE_DRIVE, "--procesar"],
-                    cwd=str(BASE_DIR),
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                    encoding="utf-8",
-                    errors="replace"
-                )
-
-                # Mostrar salida relevante (filtrar líneas vacías)
-                salida = resultado.stdout.strip()
-                if salida:
-                    for linea in salida.split("\n"):
-                        linea = linea.strip()
-                        if linea and not linea.startswith("=") and not linea.startswith("─"):
-                            if "error" in linea.lower():
-                                print(f"  {ROJO}{linea}{RESET}")
-                            elif "✓" in linea or "OK" in linea or "✅" in linea:
-                                print(f"  {VERDE}{linea}{RESET}")
-                            elif "Ya procesado" in linea or "⊘" in linea:
-                                print(f"  {DIM}{linea}{RESET}")
-                            else:
-                                print(f"  {linea}")
-
-                if resultado.stderr:
-                    for linea in resultado.stderr.strip().split("\n"):
-                        if linea.strip():
-                            print(f"  {ROJO}[BRIDGE ERR] {linea.strip()}{RESET}")
-
-            except subprocess.TimeoutExpired:
-                print(f"  {AMARILLO}⚠ Bridge timeout (>120s), reintentando...{RESET}")
-            except FileNotFoundError:
-                print(f"  {ROJO}✗ Node.js no encontrado. Instalar desde https://nodejs.org{RESET}")
-                print(f"  {AMARILLO}  El monitoreo bridge no puede funcionar sin Node.js{RESET}")
-                return
-            except Exception as e:
-                print(f"  {ROJO}[BRIDGE] Error: {e}{RESET}")
-
-            # Esperar intervalo (en bloques de 1s para responder rápido a Ctrl+C)
-            for _ in range(self.intervalo_bridge):
-                if not self.ejecutando:
-                    return
-                time.sleep(1)
+    def iniciar_bridge_monitoreo(self):
+        """Alias legacy para mantener compatibilidad con comandos antiguos."""
+        return self.iniciar_monitor_monitoreo()
 
     # ============================================================
     # SERVICIO 3: Procesamiento de archivos locales
@@ -245,7 +288,7 @@ class SistemaEPIPROCESS:
 
         try:
             resultado = subprocess.run(
-                [PYTHON_EXE, MAIN_PY, "--local", "--boletin"],
+                [self.python_exe, MAIN_PY, "--local", "--boletin"],
                 cwd=str(BASE_DIR),
                 capture_output=True,
                 text=True,
@@ -304,14 +347,17 @@ class SistemaEPIPROCESS:
         """Inicia todos los servicios del sistema"""
         self._mostrar_banner()
 
-        # 1. Procesar archivos locales pendientes primero
-        self.procesar_archivos_locales()
+        # 1. (Opcional) Procesar archivos locales pendientes primero
+        if self.procesar_local_arranque:
+            self.procesar_archivos_locales()
+        else:
+            print(f"\n{DIM}  • Procesamiento local inicial: desactivado (solo Drive){RESET}\n")
 
         # 2. Iniciar dashboard
         self.iniciar_dashboard()
 
-        # 3. Iniciar monitoreo bridge
-        self.iniciar_bridge_monitoreo()
+        # 3. Iniciar monitoreo nativo
+        self.iniciar_monitor_monitoreo()
 
         # 4. Mantener vivo el proceso principal
         self._mantener_vivo()
@@ -335,17 +381,19 @@ class SistemaEPIPROCESS:
 
 {BOLD}📊 Configuración del sistema:{RESET}
   • Modo:              {CYAN}{self.settings.APP_MODE}{RESET}
+    • Python servicios:  {self.python_exe}
   • Entrada:           {self.settings.INPUT_DIR}
   • Salida:            {self.settings.OUTPUT_DIR}
   • Boletines:         {"✓ Activado" if self.settings.ENABLE_BOLETIN else "✗ Desactivado"}
-  • Filtro Risaralda:  {"✓ Solo dept. 66" if self.settings.FILTER_ONLY_RISARALDA else "✗ Todos los departamentos"}
-  • Bridge intervalo:  {self.intervalo_bridge}s
+    • Filtro Risaralda:  {"✓ Solo dept. 66" if self.settings.FILTER_ONLY_RISARALDA else "✗ Todos los departamentos"}
+    • Monitor intervalo: {self.intervalo_monitor}s
   • Dashboard:         {CYAN}http://localhost:8000{RESET}
+    • Local al inicio:   {"✓ Activado" if self.procesar_local_arranque else "✗ Desactivado"}
 
 {BOLD}Servicios a iniciar:{RESET}
-  1. 📂 Procesamiento de archivos locales pendientes
-  2. 🖥️  Dashboard web (puerto 8000)
-  3. 📡 Monitoreo continuo de Google Drive (bridge Apps Script)
+    1. 🖥️  Dashboard web (puerto 8000)
+    2. 📡 Monitoreo continuo de Google Drive (OAuth nativo)
+    3. 📂 Procesamiento local inicial ({"activado" if self.procesar_local_arranque else "desactivado"})
 
   Presiona {BOLD}Ctrl+C{RESET} para detener todos los servicios
 """)
@@ -388,31 +436,37 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Ejemplos:
-  python iniciar_sistema.py                → Todo: dashboard + monitoreo + procesa locales
+    python iniciar_sistema.py                → dashboard + monitoreo (sin locales)
   python iniciar_sistema.py --solo-dash    → Solo dashboard web
-  python iniciar_sistema.py --solo-bridge  → Solo monitoreo Drive (bridge)
+    python iniciar_sistema.py --solo-monitor → Solo monitoreo Drive nativo
   python iniciar_sistema.py --solo-local   → Solo procesa archivos locales
+    python iniciar_sistema.py --con-local    → dashboard + monitoreo + procesa locales
   python iniciar_sistema.py --intervalo 30 → Monitoreo cada 30 segundos
         """
     )
 
     parser.add_argument("--solo-dash", action="store_true", help="Solo iniciar dashboard")
-    parser.add_argument("--solo-bridge", action="store_true", help="Solo monitoreo bridge")
+    parser.add_argument("--solo-monitor", action="store_true", help="Solo monitoreo nativo de Drive")
+    parser.add_argument("--solo-bridge", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--solo-local", action="store_true", help="Solo procesar archivos locales")
+    parser.add_argument("--con-local", action="store_true", help="Procesar pendientes locales al iniciar modo completo")
     parser.add_argument("--intervalo", type=int, default=30, help="Intervalo de monitoreo en segundos (default: 30)")
 
     args = parser.parse_args()
 
-    sistema = SistemaEPIPROCESS(intervalo_bridge=args.intervalo)
+    sistema = SistemaEPIPROCESS(
+        intervalo_monitor=args.intervalo,
+        procesar_local_arranque=args.con_local,
+    )
 
     if args.solo_dash:
         sistema._mostrar_banner()
         sistema.iniciar_dashboard()
         sistema._mantener_vivo()
 
-    elif args.solo_bridge:
+    elif args.solo_monitor or args.solo_bridge:
         sistema._mostrar_banner()
-        sistema.iniciar_bridge_monitoreo()
+        sistema.iniciar_monitor_monitoreo()
         sistema._mantener_vivo()
 
     elif args.solo_local:

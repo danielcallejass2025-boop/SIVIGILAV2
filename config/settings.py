@@ -75,7 +75,7 @@ class Settings:
     
     GOOGLE_DRIVE_CREDENTIALS_PATH = Path(os.getenv(
         "GOOGLE_DRIVE_CREDENTIALS_PATH",
-        "credentials/client_secret.json"
+        "credentials/credentials.json"
     ))
     
     GOOGLE_DRIVE_TOKEN_PATH = Path(os.getenv(
@@ -94,6 +94,22 @@ class Settings:
     GOOGLE_DRIVE_ERROR_FOLDER_ID = os.getenv("GOOGLE_DRIVE_ERROR_FOLDER_ID", "")
 
     # ========================================
+    # GOOGLE SHEETS
+    # ========================================
+
+    GOOGLE_SHEETS_CREDENTIALS_PATH = Path(os.getenv(
+        "GOOGLE_SHEETS_CREDENTIALS_PATH",
+        os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "credentials/credentials.json")
+    ))
+    if not GOOGLE_SHEETS_CREDENTIALS_PATH.is_absolute():
+        GOOGLE_SHEETS_CREDENTIALS_PATH = BASE_DIR / GOOGLE_SHEETS_CREDENTIALS_PATH
+    EPIDEMIOLOGOS_SPREADSHEET_ID = os.getenv(
+        "EPIDEMIOLOGOS_SPREADSHEET_ID",
+        "1mdP0J5avq4tROUiNVe8zfxKiqSU_qG05QvxNDlcCMeE"
+    )
+    EPIDEMIOLOGOS_SHEET_NAME = os.getenv("EPIDEMIOLOGOS_SHEET_NAME", "Epidemiologos")
+
+    # ========================================
     # APPS SCRIPT (HISTORICO INTERANUAL)
     # ========================================
 
@@ -103,6 +119,57 @@ class Settings:
     )
     APPS_SCRIPT_API_KEY = os.getenv("APPS_SCRIPT_API_KEY", "123456")
     APPS_SCRIPT_TIMEOUT_SECONDS = int(os.getenv("APPS_SCRIPT_TIMEOUT_SECONDS", "20"))
+
+    # ========================================
+    # APPS SCRIPT (LECTURA BOLETIN CASOS 2)
+    # ========================================
+
+    BULLETIN_APPS_SCRIPT_URL = os.getenv(
+        "BULLETIN_APPS_SCRIPT_URL",
+        os.getenv("APPS_SCRIPT_DEPLOY_URL", "")
+    )
+    BULLETIN_APPS_SCRIPT_API_KEY = os.getenv(
+        "BULLETIN_APPS_SCRIPT_API_KEY",
+        os.getenv("APPS_SCRIPT_API_KEY", "123456")
+    )
+    BULLETIN_APPS_SCRIPT_TIMEOUT_SECONDS = int(
+        os.getenv(
+            "BULLETIN_APPS_SCRIPT_TIMEOUT_SECONDS",
+            os.getenv("APPS_SCRIPT_TIMEOUT_SECONDS", "20")
+        )
+    )
+    BULLETIN_SPREADSHEET_ID = os.getenv(
+        "BULLETIN_SPREADSHEET_ID",
+        "1t41_VO9SyIy6N2at-Q0kh7DXGpg-iCMZPDpmLLSN-PM"
+    )
+    BULLETIN_SHEET_NAME = os.getenv("BULLETIN_SHEET_NAME", "CASOS 2")
+    BULLETIN_EVENT_CODE = int(os.getenv("BULLETIN_EVENT_CODE", "549"))
+    BULLETIN_TIMEZONE = os.getenv("BULLETIN_TIMEZONE", "America/Bogota")
+    BULLETIN_TREAT_TRAILING_ZEROS_AS_MISSING = os.getenv(
+        "BULLETIN_TREAT_TRAILING_ZEROS_AS_MISSING",
+        "True"
+    ).lower() == "true"
+    HISTORICO_549_SPREADSHEET_ID = os.getenv(
+        "HISTORICO_549_SPREADSHEET_ID",
+        BULLETIN_SPREADSHEET_ID
+    )
+    HISTORICO_549_SHEET_NAME = os.getenv(
+        "HISTORICO_549_SHEET_NAME",
+        BULLETIN_SHEET_NAME
+    )
+
+    # ========================================
+    # GMAIL API (opcional, requiere delegación)
+    # ========================================
+
+    GOOGLE_GMAIL_CREDENTIALS_PATH = Path(os.getenv(
+        "GOOGLE_GMAIL_CREDENTIALS_PATH",
+        os.getenv("GOOGLE_SHEETS_CREDENTIALS_PATH", os.getenv("GOOGLE_DRIVE_CREDENTIALS_PATH", "credentials/credentials.json"))
+    ))
+    if not GOOGLE_GMAIL_CREDENTIALS_PATH.is_absolute():
+        GOOGLE_GMAIL_CREDENTIALS_PATH = BASE_DIR / GOOGLE_GMAIL_CREDENTIALS_PATH
+    GOOGLE_GMAIL_DELEGATED_USER = os.getenv("GOOGLE_GMAIL_DELEGATED_USER", "")
+    GOOGLE_GMAIL_FROM = os.getenv("GOOGLE_GMAIL_FROM", GOOGLE_GMAIL_DELEGATED_USER)
     
     # ========================================
     # FUNCIONALIDADES OPCIONALES

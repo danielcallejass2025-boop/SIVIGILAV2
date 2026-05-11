@@ -1,6 +1,27 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<section class="mb-3">
+    <div class="card dashboard-legacy-toolbar">
+        {% if dashboard_context == 'epidemiologo' %}
+            <a class="btn" href="{{ url_for('epi_panel') }}">&larr; Devolver</a>
+        {% elif dashboard_context == 'secretario' %}
+            <a class="btn" href="{{ url_for('admin_panel') }}">&larr; Devolver</a>
+        {% else %}
+            <a class="btn" href="{{ url_for('home') }}">&larr; Devolver</a>
+        {% endif %}
+    </div>
+</section>
+
+<style>
+    .dashboard-legacy-toolbar {
+        display: flex;
+        justify-content: flex-start;
+        align-items: center;
+        padding: 12px 16px;
+    }
+</style>
+
 <section class="dashboard-legacy-frame-wrap">
     <iframe
         id="legacyDashboardFrame"

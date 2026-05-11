@@ -106,15 +106,4 @@
         <button class="btn btn-primary" type="submit" id="epi-submit-btn">{{ 'Guardar cambios' if mode == 'edit' else 'Crear usuario' }}</button>
     </form>
 </section>
-
-{% if mode == 'create' %}
-<script>
-window.EPIPROC_APPS_SCRIPT_CONFIG = {
-    deployUrl: {{ (apps_script_url or '')|tojson }},
-    apiKey: {{ (apps_script_api_key or '')|tojson }},
-    syncEndpoint: {{ url_for('admin_epi_sync_from_apps_script')|tojson }}
-};
-</script>
-<script src="{{ url_for('static', filename='js/admin_epidemiologo_apps_script.js') }}?v=20260421-fix6"></script>
-{% endif %}
 {% endblock %}

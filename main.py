@@ -8,6 +8,7 @@ import sys
 import argparse
 import json
 import re
+import pandas as pd
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from datetime import datetime
@@ -23,6 +24,7 @@ from scripts.anonimizar import Anonimizador
 from scripts.validador_calidad import ValidadorCalidadAvanzado
 from scripts.gestor_salida import GestorSalida
 from scripts.boletin import GeneradorBoletin
+from scripts.google_sheets_store import Historico549SheetStore
 from scripts.lector_drive import obtener_lector_drive
 
 
@@ -106,22 +108,28 @@ class SistemaSegregador:
             return "PROBABLE"
         return str(valor).strip().upper()
 
+    def _resolver_periodo_historico(self, df_depurado) -> Tuple[int, int]:
+        """Deriva año y semana desde la data; si no existe fecha_notificacion usa la fecha actual."""
+        columnas = list(getattr(df_depurado, "columns", []))
+        if "fecha_notificacion" in columnas:
+            fechas = pd.to_datetime(df_depurado["fecha_notificacion"], errors="coerce").dropna()
+            if not fechas.empty:
+                fecha_referencia = fechas.max()
+                iso = fecha_referencia.isocalendar()
+                return int(iso.year), int(iso.week)
+
+        fecha_actual = datetime.now()
+        return int(fecha_actual.year), int(self._obtener_semana_epidemiologica(fecha_actual))
+
     def _guardar_resumen_historico_apps_script(self, df_depurado, codigo_evento: int) -> Dict[str, Any]:
         """
-        Envía al Apps Script el resumen de la semana para guardar/actualizar la hoja HISTORICO.
+        Guarda/actualiza el resumen histórico del evento 549 directamente en Google Sheets.
         """
         if int(codigo_evento) != 549:
             return {
                 "exitoso": False,
                 "omitido": True,
                 "mensaje": "Registro histórico habilitado únicamente para evento 549"
-            }
-
-        url = (self.settings.APPS_SCRIPT_DEPLOY_URL or "").strip()
-        if not url:
-            return {
-                "exitoso": False,
-                "mensaje": "APPS_SCRIPT_DEPLOY_URL no configurado"
             }
 
         columnas = list(getattr(df_depurado, "columns", []))
@@ -140,58 +148,83 @@ class SistemaSegregador:
         else:
             clasificaciones = ["" for _ in range(len(df_depurado))]
 
-        datos_minimos = [{"clasificacion": c} for c in clasificaciones]
+        col_semana = None
+        col_ano = None
+        for col in columnas:
+            norm = self._normalizar_texto(col)
+            if col_semana is None and norm == "semana":
+                col_semana = col
+            if col_ano is None and norm in {"a_o", "ano", "anio", "year"}:
+                col_ano = col
 
-        params = {
-            "accion": "guardar_resumen",
-            "datos": json.dumps(datos_minimos, ensure_ascii=False)
-        }
-        if self.settings.APPS_SCRIPT_API_KEY:
-            params["key"] = self.settings.APPS_SCRIPT_API_KEY
+        weekly_counts_by_year: Dict[int, Dict[int, int]] = {}
+        latest_anio = None
+        latest_semana = None
+        if col_semana and col_ano:
+            tmp = pd.DataFrame({
+                "semana": pd.to_numeric(df_depurado[col_semana], errors="coerce"),
+                "anio": pd.to_numeric(df_depurado[col_ano], errors="coerce"),
+            }).dropna()
+
+            if not tmp.empty:
+                tmp["semana"] = tmp["semana"].astype(int)
+                tmp["anio"] = tmp["anio"].astype(int)
+                tmp = tmp[
+                    (tmp["semana"] >= 1)
+                    & (tmp["semana"] <= 53)
+                    & (tmp["anio"] >= 1900)
+                    & (tmp["anio"] <= 2100)
+                ]
+
+                if not tmp.empty:
+                    grouped = tmp.groupby(["anio", "semana"]).size().reset_index(name="casos")
+                    for _, row in grouped.iterrows():
+                        anio_i = int(row["anio"])
+                        semana_i = int(row["semana"])
+                        casos_i = int(row["casos"])
+                        weekly_counts_by_year.setdefault(anio_i, {})[semana_i] = casos_i
+
+                    latest_anio = int(grouped["anio"].max())
+                    latest_semana = int(grouped[grouped["anio"] == latest_anio]["semana"].max())
 
         try:
-            response = requests.get(
-                url,
-                params=params,
-                timeout=self.settings.APPS_SCRIPT_TIMEOUT_SECONDS
-            )
-
-            body_preview = response.text[:300]
-            payload = None
-            try:
-                payload = response.json()
-            except Exception:
-                payload = {"raw": body_preview}
-
-            if response.ok:
-                if isinstance(payload, dict) and str(payload.get("status", "")).lower() == "error":
-                    return {
-                        "exitoso": False,
-                        "status_code": response.status_code,
-                        "mensaje": payload.get("mensaje", "Apps Script respondió con error"),
-                        "detalle": payload
-                    }
-
+            store = Historico549SheetStore()
+            if weekly_counts_by_year:
+                payload = store.upsert_weekly_counts(weekly_counts_by_year)
                 return {
                     "exitoso": True,
-                    "status_code": response.status_code,
-                    "semana_enviada": self._obtener_semana_epidemiologica(),
-                    "total_registros": len(datos_minimos),
+                    "modo": "sincronizacion_por_semana",
+                    "semana_enviada": latest_semana,
+                    "anio_enviado": latest_anio,
+                    "total_registros": len(df_depurado),
+                    "semanas_sincronizadas": sum(len(v) for v in weekly_counts_by_year.values()),
+                    "anios_sincronizados": sorted(weekly_counts_by_year.keys()),
                     "columna_clasificacion": col_clasificacion,
-                    "respuesta": payload
+                    "respuesta": payload,
                 }
 
+            # Fallback conservador cuando no hay columnas semana/año en el depurado.
+            anio, semana = self._resolver_periodo_historico(df_depurado)
+            payload = store.guardar_resumen(
+                semana=semana,
+                anio=anio,
+                total_casos=len(df_depurado),
+                clasificaciones=clasificaciones,
+            )
             return {
-                "exitoso": False,
-                "status_code": response.status_code,
-                "mensaje": f"Apps Script respondió HTTP {response.status_code}",
-                "detalle": payload
+                "exitoso": True,
+                "modo": "resumen_unico_fallback",
+                "semana_enviada": semana,
+                "anio_enviado": anio,
+                "total_registros": len(df_depurado),
+                "columna_clasificacion": col_clasificacion,
+                "respuesta": payload,
             }
 
         except Exception as e:
             return {
                 "exitoso": False,
-                "mensaje": f"Error comunicando Apps Script: {e}"
+                "mensaje": f"Error actualizando Google Sheets histórico: {e}"
             }
 
     def _guardar_mme_depurado_final(self, df_depurado) -> Tuple[bool, str]:
@@ -308,8 +341,13 @@ class SistemaSegregador:
             mapeo_columnas = self.normalizador.mapear_columnas(df)
             df_normalizado = self.normalizador.estandarizar_dataframe(df, mapeo_columnas)
             
-            # Filtrar por departamento si está habilitado
-            if self.settings.FILTER_ONLY_RISARALDA and "departamento" in df_normalizado.columns:
+            # Filtrar por departamento solo para eventos sin rutina específica 549.
+            # Para 549 el filtro territorial se maneja dentro de la depuración específica.
+            if (
+                self.settings.FILTER_ONLY_RISARALDA
+                and int(codigo_evento) != 549
+                and "departamento" in df_normalizado.columns
+            ):
                 df_normalizado, filas_elim = self.normalizador.agrupar_por_departamento(
                     df_normalizado, "RISARALDA"
                 )
@@ -463,11 +501,8 @@ class SistemaSegregador:
                     else:
                         self.logger.warning("⚠️ No hay conexión con Google Drive para subir archivos")
 
-                hubo_subida_exitosa = any(
-                    (info or {}).get("exitoso") for info in archivos_subidos_drive.values()
-                )
-                if hubo_subida_exitosa:
-                    self.logger.info("Registrando resumen histórico interanual en Apps Script...")
+                if int(codigo_evento) == 549:
+                    self.logger.info("Registrando resumen histórico interanual en Google Sheets...")
                     resumen_historico = self._guardar_resumen_historico_apps_script(df_anonimo, codigo_evento)
                     if resumen_historico.get("exitoso"):
                         self.logger.info("✅ Resumen histórico registrado correctamente")
@@ -479,7 +514,7 @@ class SistemaSegregador:
                     resumen_historico = {
                         "exitoso": False,
                         "omitido": True,
-                        "mensaje": "No se registró resumen histórico porque no hubo subida exitosa a Drive"
+                        "mensaje": "Registro histórico habilitado únicamente para evento 549"
                     }
             
             resultado["pasos"].append({
@@ -537,13 +572,6 @@ class SistemaSegregador:
                         "boletin_texto": ruta_txt if ok_txt else None
                     })
             
-            # Guardar reporte en JSON
-            self.logger.info("Guardando reporte de procesamiento...")
-            ok_json, ruta_json = self.gestor_salida.guardar_reporte_json(
-                resultado,
-                f"{nombre_salida}_reporte"
-            )
-            
             # PASO 10: Opcionalmente eliminar original
             if self.settings.DELETE_ORIGINAL_AFTER_PROCESS:
                 ok_eliminar, msg = self.gestor_salida.eliminar_archivo_original(ruta_archivo)
@@ -555,6 +583,13 @@ class SistemaSegregador:
             
             resultado["exitoso"] = True
             resultado["archivo_salida"] = archivo_guardado
+
+            # Guardar reporte en JSON con el estado final consolidado
+            self.logger.info("Guardando reporte de procesamiento...")
+            ok_json, ruta_json = self.gestor_salida.guardar_reporte_json(
+                resultado,
+                f"{nombre_salida}_reporte"
+            )
             
             self.logger.info(f"✓ Archivo procesado exitosamente: {archivo_guardado}")
             

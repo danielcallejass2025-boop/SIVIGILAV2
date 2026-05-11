@@ -1,8 +1,8 @@
 """
 scripts/lector_drive.py
 Módulo de integración con Google Drive
-Descarga, carga y monitorea archivos en Google Drive
-Usa OAuth 2.0 de forma segura sin incrustar credenciales
+Descarga, carga y monitorea archivos en Google Drive.
+Soporta tanto OAuth 2.0 de usuario como credenciales de service account.
 """
 
 import os
@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from config.settings import Settings
+from scripts.google_auth import load_google_credentials
 from scripts.utils import Logger
 
 # Importes condicionales de Google API
@@ -43,6 +44,8 @@ class LectorDrive:
         self.logger = Logger()
         self.settings = Settings()
         self.service = None
+        self._credentials = None
+        self._credential_mode = "desconocido"
         
         if not GOOGLE_API_DISPONIBLE:
             self.logger.warning("Google API no disponible. Instalar: pip install google-auth-oauthlib")
@@ -53,8 +56,9 @@ class LectorDrive:
     
     def _autenticar(self) -> bool:
         """
-        Autentica con Google Drive usando OAuth 2.0
-        Implementa refresh token robusto para evitar que expire la sesión.
+        Autentica con Google Drive usando service account u OAuth 2.0.
+        Si el archivo de credenciales es de tipo service_account, evita por completo
+        el flujo interactivo y el manejo de token.json.
         
         Flujo:
         1. Intenta cargar token JSON (formato nuevo) o pickle (formato legacy)
@@ -73,42 +77,22 @@ class LectorDrive:
                     f"{self.settings.GOOGLE_DRIVE_CREDENTIALS_PATH}"
                 )
                 return False
-            
-            token_path = self.settings.GOOGLE_DRIVE_TOKEN_PATH
-            credentials = None
-            
-            # ---- 1. Intentar cargar token existente ----
-            credentials = self._cargar_token(token_path)
-            
-            # ---- 2. Refrescar o re-autenticar ----
-            if credentials and credentials.valid:
-                # Token aún válido, refrescar proactivamente si está cerca de expirar
-                credentials = self._refrescar_proactivo(credentials)
-                
-            elif credentials and credentials.refresh_token:
-                # Token expirado pero tiene refresh_token → refrescar
-                try:
-                    self.logger.info("Token expirado, refrescando con refresh_token...")
-                    credentials.refresh(Request())
-                    self.logger.info("Token refrescado exitosamente")
-                    self._guardar_token_json(credentials, token_path)
-                except Exception as e:
-                    self.logger.warning(f"Falló el refresco del token: {e}")
-                    self.logger.info("Se necesita nueva autorización...")
-                    credentials = self._iniciar_flujo_oauth(token_path)
-                    if not credentials:
-                        return False
-            else:
-                # No hay token o no tiene refresh_token → flujo OAuth completo
-                self.logger.info("No hay token válido, iniciando autorización OAuth...")
-                credentials = self._iniciar_flujo_oauth(token_path)
-                if not credentials:
-                    return False
+
+            credentials, credential_mode = load_google_credentials(
+                credentials_path=self.settings.GOOGLE_DRIVE_CREDENTIALS_PATH,
+                scopes=self.SCOPES,
+                token_path=self.settings.GOOGLE_DRIVE_TOKEN_PATH,
+                logger=self.logger,
+            )
             
             # ---- 3. Construir servicio ----
             self.service = build('drive', 'v3', credentials=credentials)
             self._credentials = credentials  # Guardar referencia para refresco proactivo
-            self.logger.info("Autenticación con Google Drive exitosa")
+            self._credential_mode = credential_mode
+            if credential_mode == "service_account":
+                self.logger.info("Autenticación con Google Drive exitosa usando service account")
+            else:
+                self.logger.info("Autenticación con Google Drive exitosa usando OAuth")
             
             return True
             
@@ -120,6 +104,30 @@ class LectorDrive:
                     "Fallo de resolución DNS hacia Google. Verificar Internet, DNS o proxy corporativo."
                 )
             return False
+
+    def _cargar_service_account_credentials(self, credentials_path: Path) -> Optional['ServiceCredentials']:
+        """
+        Carga credenciales de service account si el JSON corresponde a ese tipo.
+        Retorna None cuando el archivo es de OAuth de usuario para mantener compatibilidad.
+        """
+        try:
+            with open(credentials_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+        except Exception as e:
+            self.logger.warning(f"No se pudo inspeccionar archivo de credenciales: {e}")
+            return None
+
+        if str(payload.get('type') or '').strip().lower() != 'service_account':
+            return None
+
+        try:
+            return ServiceCredentials.from_service_account_file(
+                str(credentials_path),
+                scopes=self.SCOPES,
+            )
+        except Exception as e:
+            self.logger.error(f"Error cargando service account de Google Drive: {e}")
+            return None
 
     def _cargar_token(self, token_path: Path) -> Optional['UserCredentials']:
         """
@@ -266,6 +274,7 @@ class LectorDrive:
         info = {
             'conectado': self.esta_conectado(),
             'tiene_credentials': hasattr(self, '_credentials') and self._credentials is not None,
+            'modo_credencial': getattr(self, '_credential_mode', 'desconocido'),
             'token_valido': False,
             'tiene_refresh_token': False,
             'expira_en_segundos': None,
@@ -274,10 +283,15 @@ class LectorDrive:
         
         if hasattr(self, '_credentials') and self._credentials:
             creds = self._credentials
-            info['token_valido'] = creds.valid
-            info['tiene_refresh_token'] = creds.refresh_token is not None
+            if info['modo_credencial'] == 'service_account':
+                info['token_valido'] = info['conectado']
+                info['necesita_reauth'] = not info['conectado']
+                return info
+
+            info['token_valido'] = getattr(creds, 'valid', False)
+            info['tiene_refresh_token'] = getattr(creds, 'refresh_token', None) is not None
             
-            if creds.expiry:
+            if getattr(creds, 'expiry', None):
                 try:
                     expiry_utc = creds.expiry.replace(tzinfo=timezone.utc)
                     delta = (expiry_utc - datetime.now(timezone.utc)).total_seconds()
@@ -285,7 +299,7 @@ class LectorDrive:
                 except Exception:
                     pass
             
-            info['necesita_reauth'] = not creds.valid and not creds.refresh_token
+            info['necesita_reauth'] = not getattr(creds, 'valid', False) and not getattr(creds, 'refresh_token', None)
         
         return info
 
@@ -297,6 +311,11 @@ class LectorDrive:
         Returns:
             True si la re-autorización fue exitosa
         """
+        if getattr(self, '_credential_mode', '') == 'service_account':
+            self.service = None
+            self._credentials = None
+            return self._autenticar()
+
         token_path = self.settings.GOOGLE_DRIVE_TOKEN_PATH
         try:
             if token_path.exists():
@@ -464,6 +483,16 @@ class LectorDrive:
             return True, file_id
             
         except HttpError as e:
+            raw_error = str(e)
+            if self._credential_mode == "service_account" and "storageQuotaExceeded" in raw_error:
+                message = (
+                    "La service account puede leer Drive, pero no crear archivos en una carpeta compartida de My Drive "
+                    "porque no tiene cuota propia. Mueve la carpeta de salida a un Shared Drive o usa OAuth/delegación "
+                    "de un usuario con cuota."
+                )
+                self.logger.error(message)
+                return False, message
+
             self.logger.error(f"Error subiendo archivo a Drive: {e}")
             return False, f"Error: {e}"
     

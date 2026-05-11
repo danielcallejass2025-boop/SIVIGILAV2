@@ -63,8 +63,8 @@ body {
 }
 
 .topbar {
-    position: sticky;
-    top: 32px;
+    position: relative;
+    top: 0;
     z-index: 10;
     display: flex;
     justify-content: space-between;
@@ -72,8 +72,7 @@ body {
     gap: 1rem;
     padding: 1rem 1.4rem;
     border-bottom: 1px solid #cfd8eb;
-    background: rgba(255, 255, 255, 0.96);
-    backdrop-filter: blur(8px);
+    background: #ffffff;
 }
 
 .brand-wrap {
@@ -677,15 +676,9 @@ canvas {
 }
 
 @media (max-width: 700px) {
-    .gov-strip-inner {
-        min-height: 28px;
-        font-size: 0.8rem;
-    }
-
     .topbar {
         align-items: flex-start;
         flex-direction: column;
-        top: 28px;
     }
 
     .intro-grid,

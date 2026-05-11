@@ -33,10 +33,12 @@ from .services import (
     generate_temp_password,
     generate_username,
     log_action,
+    send_credentials_email,
     seed_events,
     seed_initial_secretario,
     seed_sample_bulletin,
 )
+from scripts.google_sheets_store import EpidemiologosSheetStore
 
 
 EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -155,6 +157,44 @@ def _post_apps_script(payload: dict[str, Any], timeout_seconds: int = 12) -> dic
 
 
 def _apps_script_action(action: str, timeout_seconds: int = 10, **payload: Any) -> dict[str, Any]:
+    native_actions = {
+        "registrar_epidemiologo",
+        "listar_epidemiologos",
+        "autenticar_epidemiologo",
+        "actualizar_estado_epidemiologo",
+        "regenerar_password_epidemiologo",
+        "actualizar_evento_epidemiologo",
+        "actualizar_epidemiologo",
+        "eliminar_epidemiologo",
+    }
+    if action in native_actions:
+        store = EpidemiologosSheetStore()
+        if action == "registrar_epidemiologo":
+            return store.create(
+                nombre=str(payload.get("nombre") or "").strip(),
+                cedula=str(payload.get("cedula") or "").strip(),
+                correo=str(payload.get("correo") or "").strip(),
+                evento=str(payload.get("evento") or "").strip(),
+                usuario=str(payload.get("usuario") or payload.get("user") or payload.get("cedula") or "").strip() or None,
+                password_temporal=str(payload.get("password_temporal") or payload.get("pass") or generate_temp_password()).strip(),
+                estado=str(payload.get("estado") or "Activo").strip(),
+            )
+        if action == "listar_epidemiologos":
+            return {"success": True, "items": store.list_items()}
+        if action == "autenticar_epidemiologo":
+            return store.authenticate(str(payload.get("usuario") or "").strip(), str(payload.get("password") or ""))
+        if action == "actualizar_estado_epidemiologo":
+            return store.update_status(str(payload.get("usuario") or "").strip(), str(payload.get("cedula") or "").strip(), str(payload.get("estado") or "Activo").strip())
+        if action == "regenerar_password_epidemiologo":
+            new_pass = generate_temp_password()
+            return store.regenerate_password(str(payload.get("usuario") or "").strip(), str(payload.get("cedula") or "").strip(), new_pass)
+        if action == "actualizar_evento_epidemiologo":
+            return store.update_event(str(payload.get("usuario") or "").strip(), str(payload.get("cedula") or "").strip(), str(payload.get("evento") or "").strip())
+        if action == "actualizar_epidemiologo":
+            return store.update(payload)
+        if action == "eliminar_epidemiologo":
+            return store.delete(str(payload.get("usuario") or "").strip(), str(payload.get("cedula") or "").strip())
+
     body = {"accion": action}
     body.update(payload)
     data = _post_apps_script(body, timeout_seconds=timeout_seconds)
@@ -271,10 +311,10 @@ def _upsert_local_epidemiologo(
         return False, f"Error local al sincronizar usuario: {exc}", None
 
 
-def _sync_all_epidemiologos_from_apps_script() -> tuple[int, int]:
-    payload = _post_apps_script({"accion": "listar_epidemiologos"}, timeout_seconds=4)
+def _sync_all_epidemiologos_from_apps_script() -> tuple[int, int, set[str], set[str], set[str]]:
+    payload = _apps_script_action("listar_epidemiologos", timeout_seconds=4)
     if not payload.get("success"):
-        raise RuntimeError(str(payload.get("error") or "Error al listar epidemiologos en Apps Script"))
+        raise RuntimeError(str(payload.get("error") or "Error al listar epidemiologos en Google Sheets"))
 
     items = payload.get("items") or []
     if not isinstance(items, list):
@@ -282,6 +322,9 @@ def _sync_all_epidemiologos_from_apps_script() -> tuple[int, int]:
 
     synced = 0
     total = 0
+    remote_cedulas: set[str] = set()
+    remote_usernames: set[str] = set()
+    remote_emails: set[str] = set()
 
     for item in items:
         if not isinstance(item, dict):
@@ -291,6 +334,13 @@ def _sync_all_epidemiologos_from_apps_script() -> tuple[int, int]:
         cedula = str(item.get("cedula") or "").strip()
         username = str(item.get("usuario") or item.get("cedula") or "").strip()
         email = str(item.get("correo") or "").strip().lower()
+
+        if cedula:
+            remote_cedulas.add(cedula)
+        if username:
+            remote_usernames.add(username)
+        if email:
+            remote_emails.add(email)
 
         existing = None
         if cedula:
@@ -317,18 +367,43 @@ def _sync_all_epidemiologos_from_apps_script() -> tuple[int, int]:
         if ok:
             synced += 1
 
-    return synced, total
+    return synced, total, remote_cedulas, remote_usernames, remote_emails
+
+
+def _apply_remote_epidemiologo_visibility_filter(
+    query: Any,
+    remote_cedulas: Optional[set[str]],
+    remote_usernames: Optional[set[str]],
+    remote_emails: Optional[set[str]],
+) -> Any:
+    if remote_cedulas is None or remote_usernames is None or remote_emails is None:
+        return query
+
+    predicates = []
+    if remote_cedulas:
+        predicates.append(User.cedula.in_(remote_cedulas))
+    if remote_usernames:
+        predicates.append(User.username.in_(remote_usernames))
+    if remote_emails:
+        predicates.append(User.email.in_(remote_emails))
+
+    if predicates:
+        return query.filter(or_(*predicates))
+
+    # Hoja vacia: no mostrar epidemiologos locales residuales.
+    return query.filter(text("1=0"))
 
 
 def _sync_from_apps_script_credentials(username: str, password: str) -> bool:
-    payload = _post_apps_script(
-        {
-            "accion": "autenticar_epidemiologo",
-            "usuario": username,
-            "password": password,
-        },
-        timeout_seconds=5,
-    )
+    try:
+        payload = _apps_script_action(
+            "autenticar_epidemiologo",
+            timeout_seconds=5,
+            usuario=username,
+            password=password,
+        )
+    except Exception:
+        return False
 
     if not payload.get("success"):
         return False
@@ -485,29 +560,102 @@ def _migrate_legacy_visible_passwords() -> None:
 
 
 def _extract_bulletin_week_meta(bulletin: Bulletin) -> dict[str, Any]:
-    sources = [bulletin.content or "", bulletin.title or ""]
-    patterns = [
+    roman_periods = ["", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X", "XI", "XII", "XIII"]
+    roman_to_int = {txt: idx for idx, txt in enumerate(roman_periods) if idx > 0}
+
+    def _safe_period_from_week(week: int) -> int:
+        safe_week = max(1, min(53, int(week)))
+        return min(13, (safe_week + 3) // 4)
+
+    def _build_meta(week: Optional[int], year: Optional[int], period: Optional[int] = None) -> dict[str, Any]:
+        if week is None or year is None:
+            return {
+                "week": None,
+                "year": None,
+                "period": None,
+                "label": "Sin periodo/semana detectado",
+            }
+
+        week = int(week)
+        year = int(year)
+        if period is None:
+            period = _safe_period_from_week(week)
+        period = max(1, min(13, int(period)))
+        roman = roman_periods[period] if period < len(roman_periods) else str(period)
+
+        return {
+            "week": week,
+            "year": year,
+            "period": period,
+            "label": f"Periodo {roman} - SE {week:02d} / {year}",
+        }
+
+    content = str(bulletin.content or "").strip()
+    if content:
+        candidate_json_blobs: list[str] = []
+        if content.startswith("{") and content.endswith("}"):
+            candidate_json_blobs.append(content)
+
+        meta_match = re.search(r"Meta:\s*(\{.*?\})", content, re.IGNORECASE)
+        if meta_match:
+            candidate_json_blobs.append(meta_match.group(1))
+
+        for raw_json in candidate_json_blobs:
+            try:
+                parsed = json.loads(raw_json)
+            except Exception:
+                continue
+
+            if isinstance(parsed, dict):
+                week_raw = parsed.get("selected_week", parsed.get("selectedWeek", parsed.get("week")))
+                year_raw = parsed.get("selected_year", parsed.get("selectedYear", parsed.get("year")))
+                period_raw = parsed.get("selected_period", parsed.get("selectedPeriod", parsed.get("period")))
+
+                try:
+                    week = int(week_raw) if week_raw is not None else None
+                    year = int(year_raw) if year_raw is not None else None
+                    period = int(period_raw) if period_raw is not None else None
+                except Exception:
+                    week = None
+                    year = None
+                    period = None
+
+                if week is not None and year is not None and 1 <= week <= 53 and 2000 <= year <= 2100:
+                    if period is not None and not (1 <= period <= 13):
+                        period = None
+                    return _build_meta(week=week, year=year, period=period)
+
+    sources = [content, bulletin.title or ""]
+
+    period_regex = re.compile(
+        r"Periodo\s+Epidemiol[oó]gico\s+([IVXLC]+)[^\n]*Semana\s+Epidemiol[oó]gica\s*(\d{1,2})[,\s]+(\d{4})",
+        re.IGNORECASE,
+    )
+    week_regexes = [
         re.compile(r"Semana\s+Epidemiol[oó]gica\s*(\d{1,2})[,\s]+(\d{4})", re.IGNORECASE),
         re.compile(r"Semana\s*(\d{1,2})\s+de\s+(\d{4})", re.IGNORECASE),
+        re.compile(r"SE\s*(\d{1,2})\s*/\s*(\d{4})", re.IGNORECASE),
     ]
 
     for source in sources:
-        for pattern in patterns:
+        match_period = period_regex.search(source)
+        if match_period:
+            period_txt = str(match_period.group(1) or "").upper().strip()
+            week = int(match_period.group(2))
+            year = int(match_period.group(3))
+            period = roman_to_int.get(period_txt)
+            if 1 <= week <= 53 and 2000 <= year <= 2100:
+                return _build_meta(week=week, year=year, period=period)
+
+        for pattern in week_regexes:
             match = pattern.search(source)
             if match:
                 week = int(match.group(1))
                 year = int(match.group(2))
-                return {
-                    "week": week,
-                    "year": year,
-                    "label": f"SE {week:02d} / {year}",
-                }
+                if 1 <= week <= 53 and 2000 <= year <= 2100:
+                    return _build_meta(week=week, year=year)
 
-    return {
-        "week": None,
-        "year": None,
-        "label": "Sin semana detectada",
-    }
+    return _build_meta(week=None, year=None, period=None)
 
 
 def _get_epi_bulletin_rows(user: User, status_filter: str = "TODOS") -> list[dict[str, Any]]:
@@ -534,8 +682,19 @@ def _get_epi_bulletin_rows(user: User, status_filter: str = "TODOS") -> list[dic
     return rows
 
 
-def _get_admin_epidemiologo_rows() -> list[dict[str, Any]]:
-    users = User.query.filter_by(role=UserRole.EPIDEMIOLOGO).order_by(User.full_name.asc()).all()
+def _get_admin_epidemiologo_rows(
+    remote_cedulas: Optional[set[str]] = None,
+    remote_usernames: Optional[set[str]] = None,
+    remote_emails: Optional[set[str]] = None,
+) -> list[dict[str, Any]]:
+    query = User.query.filter_by(role=UserRole.EPIDEMIOLOGO)
+    query = _apply_remote_epidemiologo_visibility_filter(
+        query,
+        remote_cedulas,
+        remote_usernames,
+        remote_emails,
+    )
+    users = query.order_by(User.full_name.asc()).all()
     rows: list[dict[str, Any]] = []
 
     for user in users:
@@ -841,12 +1000,36 @@ def register_routes(app: Flask, base_dir: Path) -> None:
                 flash("La confirmación de contraseña no coincide.", "error")
                 return render_template("change_password.html")
 
+            if user.role == UserRole.EPIDEMIOLOGO:
+                try:
+                    _apps_script_action(
+                        "actualizar_epidemiologo",
+                        timeout_seconds=12,
+                        old_usuario=user.username,
+                        old_cedula=user.cedula,
+                        usuario=user.username,
+                        nombre=user.full_name,
+                        cedula=user.cedula,
+                        correo=user.email,
+                        evento=_event_display_from_code(user.assigned_event_code),
+                        estado="Activo" if user.is_active else "Inactivo",
+                        password_temporal=new_password,
+                    )
+                except Exception as exc:
+                    flash(f"No fue posible actualizar la contraseña en Google Sheets: {exc}", "error")
+                    return render_template("change_password.html")
+
             user.set_password(new_password)
             if user.role == UserRole.EPIDEMIOLOGO:
                 user.set_visible_password(new_password)
                 user.credentials_updated_at = datetime.utcnow()
             user.must_change_password = False
-            db.session.commit()
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                flash("No fue posible guardar la nueva contraseña localmente. Intenta nuevamente.", "error")
+                return render_template("change_password.html")
             log_action("PASSWORD_CHANGED", "USER", str(user.id), "Cambio de contraseña")
 
             flash("Contraseña actualizada exitosamente.", "success")
@@ -869,11 +1052,24 @@ def register_routes(app: Flask, base_dir: Path) -> None:
     @app.route("/admin")
     @role_required(UserRole.SECRETARIO)
     def admin_panel():
-        total_epi = User.query.filter_by(role=UserRole.EPIDEMIOLOGO).count()
+        remote_cedulas: Optional[set[str]] = None
+        remote_usernames: Optional[set[str]] = None
+        remote_emails: Optional[set[str]] = None
+        try:
+            _, _, remote_cedulas, remote_usernames, remote_emails = _sync_all_epidemiologos_from_apps_script()
+        except Exception:
+            # Si Google Sheets no esta disponible, se muestra el estado local sin interrumpir al usuario.
+            pass
+
+        epi_rows = _get_admin_epidemiologo_rows(
+            remote_cedulas=remote_cedulas,
+            remote_usernames=remote_usernames,
+            remote_emails=remote_emails,
+        )
+        total_epi = len(epi_rows)
         total_boletines = Bulletin.query.count()
         publicados = Bulletin.query.filter_by(status=BulletinStatus.PUBLICADO).count()
         status_filter = (request.args.get("estado") or "TODOS").strip().upper()
-        epi_rows = _get_admin_epidemiologo_rows()
         recent_bulletin_rows = _get_admin_recent_bulletin_rows(status_filter)
 
         return render_template(
@@ -899,16 +1095,25 @@ def register_routes(app: Flask, base_dir: Path) -> None:
     @app.route("/admin/epidemiologos")
     @role_required(UserRole.SECRETARIO)
     def admin_epi_list():
+        remote_cedulas: Optional[set[str]] = None
+        remote_usernames: Optional[set[str]] = None
+        remote_emails: Optional[set[str]] = None
         try:
-            _sync_all_epidemiologos_from_apps_script()
+            _, _, remote_cedulas, remote_usernames, remote_emails = _sync_all_epidemiologos_from_apps_script()
         except Exception:
-            # Si Apps Script no esta disponible, se muestra el estado local sin interrumpir al usuario.
+            # Si Google Sheets no esta disponible, se muestra el estado local sin interrumpir al usuario.
             pass
 
         q = (request.args.get("q") or "").strip()
         estado = (request.args.get("estado") or "").strip().upper()
 
         query = User.query.filter_by(role=UserRole.EPIDEMIOLOGO)
+        query = _apply_remote_epidemiologo_visibility_filter(
+            query,
+            remote_cedulas,
+            remote_usernames,
+            remote_emails,
+        )
 
         if q:
             like_q = f"%{q}%"
@@ -979,8 +1184,6 @@ def register_routes(app: Flask, base_dir: Path) -> None:
     @role_required(UserRole.SECRETARIO)
     def admin_epi_new():
         eventos = Event.query.filter_by(active=True).order_by(Event.code.asc()).all()
-        apps_script_url = (os.getenv("APPS_SCRIPT_DEPLOY_URL") or DEFAULT_APPS_SCRIPT_DEPLOY_URL).strip()
-        apps_script_api_key = (os.getenv("APPS_SCRIPT_API_KEY") or "").strip()
 
         if request.method == "POST":
             full_name = (request.form.get("full_name") or "").strip()
@@ -992,11 +1195,6 @@ def register_routes(app: Flask, base_dir: Path) -> None:
             if assigned_event and not assigned_event.isdigit():
                 errors.append("El evento asignado es inválido.")
 
-            if User.query.filter_by(cedula=cedula).first():
-                errors.append("Ya existe un usuario con esa cédula.")
-            if User.query.filter_by(email=email).first():
-                errors.append("Ya existe un usuario con ese correo.")
-
             if errors:
                 for err in errors:
                     flash(err, "error")
@@ -1005,42 +1203,83 @@ def register_routes(app: Flask, base_dir: Path) -> None:
                     eventos=eventos,
                     user_obj=None,
                     mode="create",
-                    apps_script_url=apps_script_url,
-                    apps_script_api_key=apps_script_api_key,
                 )
 
             username_base = generate_username(full_name, cedula)
             username = _resolve_unique_username(username_base)
             temp_password = generate_temp_password()
 
-            user = User(
-                username=username,
-                role=UserRole.EPIDEMIOLOGO,
+            assigned_event_code = int(assigned_event) if assigned_event else None
+            evento_display = _event_display_from_code(assigned_event_code)
+
+            try:
+                payload = _apps_script_action(
+                    "registrar_epidemiologo",
+                    timeout_seconds=12,
+                    nombre=full_name,
+                    cedula=cedula,
+                    correo=email,
+                    evento=evento_display,
+                    usuario=username,
+                    password_temporal=temp_password,
+                    estado="Activo",
+                )
+            except Exception as exc:
+                flash(f"No fue posible registrar en Google Sheets: {exc}", "error")
+                return render_template(
+                    "admin_epi_form.html",
+                    eventos=eventos,
+                    user_obj=None,
+                    mode="create",
+                )
+
+            remote_username = str(payload.get("user") or payload.get("usuario") or username).strip()
+            remote_password = str(payload.get("pass") or payload.get("password_temporal") or temp_password).strip()
+            ok, message, user = _upsert_local_epidemiologo(
                 full_name=full_name,
                 cedula=cedula,
                 email=email,
-                assigned_event_code=int(assigned_event) if assigned_event else None,
-                must_change_password=True,
-                is_active=True,
-                credentials_updated_at=datetime.utcnow(),
+                username=remote_username,
+                password_plain=remote_password,
+                evento_display=evento_display,
+                estado="Activo",
             )
-            user.set_password(temp_password)
-            user.set_visible_password(temp_password)
-            db.session.add(user)
-            db.session.commit()
+            if not ok or user is None:
+                try:
+                    _apps_script_action(
+                        "eliminar_epidemiologo",
+                        timeout_seconds=10,
+                        usuario=remote_username,
+                        cedula=cedula,
+                    )
+                except Exception:
+                    pass
+                flash(message or "No fue posible sincronizar el usuario local.", "error")
+                return render_template(
+                    "admin_epi_form.html",
+                    eventos=eventos,
+                    user_obj=None,
+                    mode="create",
+                )
+
+            email_ok, email_message = send_credentials_email(email, full_name, remote_username, remote_password)
 
             details = (
-                f"Usuario creado: {username}; evento={user.assigned_event_code}; credenciales entregadas en pantalla"
+                f"Usuario creado: {remote_username}; evento={user.assigned_event_code}; sincronizado en Google Sheets"
             )
             log_action("CREATE_USER", "USER", str(user.id), details)
 
             flash(
                 (
                     "Epidemiólogo creado exitosamente. "
-                    f"Usuario: {username} | Contraseña temporal: {temp_password}"
+                    f"Usuario: {remote_username} | Contraseña temporal: {remote_password}"
                 ),
                 "success",
             )
+            if email_ok:
+                flash(email_message, "success")
+            else:
+                flash(email_message, "warning")
 
             return redirect(url_for("admin_epi_list"))
 
@@ -1049,8 +1288,6 @@ def register_routes(app: Flask, base_dir: Path) -> None:
             eventos=eventos,
             user_obj=None,
             mode="create",
-            apps_script_url=apps_script_url,
-            apps_script_api_key=apps_script_api_key,
         )
 
     @app.route("/admin/epidemiologos/<int:user_id>/eliminar", methods=["POST"])
@@ -1476,6 +1713,13 @@ def register_routes(app: Flask, base_dir: Path) -> None:
 
     def _save_bulletin_form(user: Optional[User], is_admin: bool, bulletin: Optional[Bulletin]):
         assert user is not None
+
+        if not is_admin and user.role == UserRole.EPIDEMIOLOGO:
+            try:
+                _sync_all_epidemiologos_from_apps_script()
+            except Exception:
+                pass
+            user = User.query.get(user.id) or user
 
         eventos = Event.query.filter_by(active=True).order_by(Event.code.asc()).all()
         assigned_event_code = user.assigned_event_code
